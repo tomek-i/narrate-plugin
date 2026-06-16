@@ -40,10 +40,15 @@ export function probeDuration(file: string): number {
   return Number(out.trim());
 }
 
-/** Re-encode any audio to a uniform WAV (48kHz stereo) so clips concat cleanly. */
-export function normalizeToWav(input: string, output: string): void {
-  execFileSync("ffmpeg", ["-y", "-i", input, "-ar", "48000", "-ac", "2", output], {
-    stdio: "ignore",
+/**
+ * Re-encode raw provider audio bytes to a uniform WAV (48kHz stereo) so clips
+ * concat cleanly. Reads from stdin so no raw intermediate file is needed;
+ * ffmpeg detects the input container (wav/mp3/aiff/…) from the byte stream.
+ */
+export function normalizeToWav(input: Buffer, output: string): void {
+  execFileSync("ffmpeg", ["-y", "-i", "pipe:0", "-ar", "48000", "-ac", "2", output], {
+    input,
+    stdio: ["pipe", "ignore", "ignore"],
   });
 }
 

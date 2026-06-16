@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
@@ -51,10 +51,10 @@ export async function render(scene: Scene, config: Config, opts: RenderOptions):
   const wavs: string[] = [];
   for (const beat of scene.beats) {
     const res = await provider.synth(beat.say, { voice: beat.voice });
-    const rawPath = join(audioDir, `${beat.id}.${res.ext}`);
-    writeFileSync(rawPath, res.audio);
-    const wavPath = join(audioDir, `${beat.id}.norm.wav`);
-    normalizeToWav(rawPath, wavPath);
+    // Normalize the provider bytes straight to a single 48kHz-stereo WAV (piped
+    // through ffmpeg, so no raw intermediate file is written) for clean concat.
+    const wavPath = join(audioDir, `${beat.id}.wav`);
+    normalizeToWav(res.audio, wavPath);
     durations[beat.id] = probeDuration(wavPath);
     wavs.push(wavPath);
     log(`  ${beat.id}: ${durations[beat.id].toFixed(2)}s`);

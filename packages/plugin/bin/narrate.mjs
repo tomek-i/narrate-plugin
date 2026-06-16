@@ -7602,7 +7602,7 @@ function resolveApiKey(config) {
 }
 
 // src/pipeline.ts
-import { mkdirSync, writeFileSync as writeFileSync3 } from "fs";
+import { mkdirSync } from "fs";
 import { join as join4, resolve as resolve2 } from "path";
 import { pathToFileURL as pathToFileURL2 } from "url";
 
@@ -7642,8 +7642,9 @@ function probeDuration(file) {
   return Number(out.trim());
 }
 function normalizeToWav(input, output) {
-  execFileSync("ffmpeg", ["-y", "-i", input, "-ar", "48000", "-ac", "2", output], {
-    stdio: "ignore"
+  execFileSync("ffmpeg", ["-y", "-i", "pipe:0", "-ar", "48000", "-ac", "2", output], {
+    input,
+    stdio: ["pipe", "ignore", "ignore"]
   });
 }
 function concatWavs(files, output, listPath) {
@@ -8223,10 +8224,8 @@ async function render(scene, config, opts) {
   const wavs = [];
   for (const beat of scene.beats) {
     const res = await provider.synth(beat.say, { voice: beat.voice });
-    const rawPath = join4(audioDir, `${beat.id}.${res.ext}`);
-    writeFileSync3(rawPath, res.audio);
-    const wavPath = join4(audioDir, `${beat.id}.norm.wav`);
-    normalizeToWav(rawPath, wavPath);
+    const wavPath = join4(audioDir, `${beat.id}.wav`);
+    normalizeToWav(res.audio, wavPath);
     durations[beat.id] = probeDuration(wavPath);
     wavs.push(wavPath);
     log(`  ${beat.id}: ${durations[beat.id].toFixed(2)}s`);
@@ -8253,7 +8252,7 @@ async function render(scene, config, opts) {
 
 // src/cli.ts
 var program2 = new Command();
-program2.name("narrate").description("Generate a narrated walkthrough video of a website.").version("0.6.0");
+program2.name("narrate").description("Generate a narrated walkthrough video of a website.").version("0.7.0");
 program2.command("render").description("TTS \u2192 record \u2192 mux into one narrated video.").requiredOption("-s, --scene <file>", "scene JSON file").option("-c, --config <file>", "config file (default: narrate.config.json)").option("-o, --out <dir>", "output directory (overrides config output.dir)").option("--provider <name>", "override TTS provider (gemini|elevenlabs|os|mock)").option("--voice <name>", "override voice").action(async (o) => {
   const cwd = process.cwd();
   loadEnv(cwd);
