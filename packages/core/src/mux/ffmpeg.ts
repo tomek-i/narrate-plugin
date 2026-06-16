@@ -110,6 +110,9 @@ export function muxNarration(opts: {
     "-c:a",
     ...acodec,
     "-shortest",
+    // Move the moov atom to the front so streaming/preview players (browsers,
+    // IDE preview panes) play audio+video immediately instead of dropping audio.
+    ...(format === "mp4" ? ["-movflags", "+faststart"] : []),
     output,
   ];
   const command = `ffmpeg ${args.map((a) => (/[\s;]/.test(a) ? `"${a}"` : a)).join(" ")}`;

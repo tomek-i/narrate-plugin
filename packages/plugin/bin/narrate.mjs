@@ -7682,6 +7682,9 @@ function muxNarration(opts) {
     "-c:a",
     ...acodec,
     "-shortest",
+    // Move the moov atom to the front so streaming/preview players (browsers,
+    // IDE preview panes) play audio+video immediately instead of dropping audio.
+    ...format === "mp4" ? ["-movflags", "+faststart"] : [],
     output
   ];
   const command = `ffmpeg ${args.map((a) => /[\s;]/.test(a) ? `"${a}"` : a).join(" ")}`;
@@ -8314,7 +8317,7 @@ ${mux.stderr.trim().split("\n").slice(-12).join("\n")}`);
 
 // src/cli.ts
 var program2 = new Command();
-program2.name("narrate").description("Generate a narrated walkthrough video of a website.").version("0.9.0");
+program2.name("narrate").description("Generate a narrated walkthrough video of a website.").version("0.10.0");
 program2.command("render").description("TTS \u2192 record \u2192 mux into one narrated video.").requiredOption("-s, --scene <file>", "scene JSON file").option("-c, --config <file>", "config file (default: narrate.config.json)").option("-o, --out <dir>", "output directory (overrides config output.dir)").option("--provider <name>", "override TTS provider (gemini|elevenlabs|os|mock)").option("--voice <name>", "override voice").action(async (o) => {
   const cwd = process.cwd();
   loadEnv(cwd);
