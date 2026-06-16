@@ -1,0 +1,26 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# build output
+dist/
+*.tsbuildinfo
+
+# narrate runtime output & media
+out/
+*.webm
+*.mp4
+*.mp3
+*.wav
+
+# secrets / local config
+.env
+.env.*
+!.env.narrate.example
+narrate.config.json
+
+# os / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

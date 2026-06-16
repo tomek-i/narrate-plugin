@@ -1,0 +1,17 @@
+{
+  "name": "narrate-marketplace",
+  "owner": {
+    "name": "Thomas Iwainski",
+    "email": "tomek.iwainski@gmail.com"
+  },
+  "description": "Narrated walkthrough video generator for websites.",
+  "plugins": [
+    {
+      "name": "narrate",
+      "source": "./packages/plugin",
+      "description": "Generate a narrated walkthrough video of a website (headless browser + text-to-speech).",
+      "category": "productivity",
+      "tags": ["video", "tts", "playwright", "screencast", "documentation"]
+    }
+  ]
+}

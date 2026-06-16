@@ -1,0 +1,5 @@
+* text=auto eol=lf
+
+# Generated/binary-ish artifacts: keep as-is, don't diff noisily.
+packages/plugin/bin/narrate.mjs linguist-generated=true
+pnpm-lock.yaml linguist-generated=true

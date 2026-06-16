@@ -1,0 +1,28 @@
+{
+  "name": "narrate-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Generate narrated walkthrough videos of a website using a headless browser + text-to-speech.",
+  "author": {
+    "name": "Thomas Iwainski",
+    "email": "tomek.iwainski@gmail.com",
+    "url": "https://github.com/tomek-i"
+  },
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "narrate": "tsx packages/core/src/cli.ts",
+    "render": "tsx packages/core/src/cli.ts render",
+    "typecheck": "tsc -p packages/core/tsconfig.json --noEmit",
+    "test": "pnpm --filter @narrate/core test",
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "plugin:validate": "claude plugin validate ./packages/plugin"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@types/node": "^22.10.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.7.0"
+  }
+}

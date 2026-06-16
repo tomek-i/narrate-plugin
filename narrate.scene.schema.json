@@ -1,0 +1,213 @@
+{
+  "$ref": "#/definitions/Scene",
+  "definitions": {
+    "Scene": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "default": "scene"
+        },
+        "site": {
+          "type": "string"
+        },
+        "viewport": {
+          "type": "object",
+          "properties": {
+            "width": {
+              "type": "number",
+              "default": 1440
+            },
+            "height": {
+              "type": "number",
+              "default": 900
+            }
+          },
+          "additionalProperties": false,
+          "default": {
+            "width": 1440,
+            "height": 900
+          }
+        },
+        "theme": {
+          "type": "string",
+          "enum": [
+            "light",
+            "dark",
+            "system"
+          ]
+        },
+        "beats": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "say": {
+                "type": "string"
+              },
+              "voice": {
+                "type": "string"
+              },
+              "do": {
+                "type": "array",
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "action": {
+                          "type": "string",
+                          "const": "wait"
+                        },
+                        "ms": {
+                          "type": "number",
+                          "exclusiveMinimum": 0
+                        }
+                      },
+                      "required": [
+                        "action",
+                        "ms"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "action": {
+                          "type": "string",
+                          "const": "navigate"
+                        },
+                        "url": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "action",
+                        "url"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "action": {
+                          "type": "string",
+                          "const": "click"
+                        },
+                        "selector": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "action",
+                        "selector"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "action": {
+                          "type": "string",
+                          "const": "scrollTo"
+                        },
+                        "y": {
+                          "type": "number"
+                        },
+                        "over": {
+                          "type": "number",
+                          "minimum": 0,
+                          "default": 0
+                        }
+                      },
+                      "required": [
+                        "action",
+                        "y"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "action": {
+                          "type": "string",
+                          "const": "scrollThrough"
+                        },
+                        "selector": {
+                          "type": "string"
+                        },
+                        "over": {
+                          "type": "number",
+                          "exclusiveMinimum": 0,
+                          "default": 4000
+                        }
+                      },
+                      "required": [
+                        "action"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "action": {
+                          "type": "string",
+                          "const": "menu"
+                        },
+                        "trigger": {
+                          "type": "string"
+                        },
+                        "item": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "action",
+                        "trigger",
+                        "item"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "action": {
+                          "type": "string",
+                          "const": "eval"
+                        },
+                        "fn": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "action",
+                        "fn"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                },
+                "default": []
+              }
+            },
+            "required": [
+              "id",
+              "say"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 1
+        }
+      },
+      "required": [
+        "site",
+        "beats"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

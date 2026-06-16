@@ -1,0 +1,13 @@
+{
+  "name": "narrate",
+  "displayName": "Narrate",
+  "description": "Generate a narrated walkthrough video of a website (headless browser recording + text-to-speech).",
+  "version": "0.1.0",
+  "author": {
+    "name": "Thomas Iwainski",
+    "email": "tomek.iwainski@gmail.com"
+  },
+  "repository": "https://github.com/tomek-i/narrate",
+  "license": "MIT",
+  "keywords": ["video", "tts", "playwright", "screencast", "documentation"]
+}

@@ -1,0 +1,32 @@
+{
+  "name": "@narrate/core",
+  "version": "0.1.0",
+  "description": "Engine + CLI for generating narrated walkthrough videos (browser recording + text-to-speech).",
+  "type": "module",
+  "bin": {
+    "narrate": "dist/cli.js"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "dev": "tsx src/cli.ts",
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test test/*.test.ts",
+    "gen:schema": "tsx scripts/gen-schema.ts"
+  },
+  "dependencies": {
+    "commander": "^12.1.0",
+    "dotenv": "^16.4.5",
+    "playwright": "^1.49.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "tsup": "^8.3.5",
+    "zod-to-json-schema": "^3.23.5"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

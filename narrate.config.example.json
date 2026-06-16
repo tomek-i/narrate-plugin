@@ -1,0 +1,15 @@
+{
+  "$schema": "./narrate.schema.json",
+  "tts": {
+    "provider": "gemini",
+    "voice": "Kore",
+    "model": "gemini-2.5-flash-preview-tts"
+  },
+  "output": {
+    "dir": "out",
+    "width": 1440,
+    "height": 900,
+    "fps": 25,
+    "format": "mp4"
+  }
+}
