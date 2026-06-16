@@ -25,8 +25,9 @@ node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" <command> …
 
 (In the source monorepo you can instead use `pnpm narrate …`.)
 
-Commands: `render --scene <file> [--out <dir>] [--provider <p>] [--voice <v>]`
-and `setup` (force-install Playwright + Chromium; normally automatic on first render).
+Commands: `init` (scaffold `.narrate/` config + key template), `check` (validate
+ffmpeg + config + key; exit 0/1), `render --scene <file> [--out <dir>] [--provider <p>]
+[--voice <v>]`, and `setup` (force-install Playwright + Chromium; normally automatic).
 
 ## Prerequisites
 
@@ -42,22 +43,33 @@ and `setup` (force-install Playwright + Chromium; normally automatic on first re
 
 ## Workflow (from a plain-English request)
 
-1. **Investigate** the repo: `package.json` dev/start script, framework, URL/port,
+1. **Scaffold + validate (deterministic).**
+   ```bash
+   node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" init
+   node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" check
+   ```
+   `init` writes `./.narrate/.env.narrate` + `narrate.config.json` (gitignored);
+   `check` validates ffmpeg + config + key and prints `RESULT: PASS|FAIL`. On
+   **ffmpeg MISSING** → give install instructions and stop. On **TTS key MISSING** →
+   tell the user to set `NARRATE_GEMINI_API_KEY=…` in `./.narrate/.env.narrate`,
+   **wait for them to confirm**, re-run `check` (or use `--provider os`/`mock` if they
+   decline). On **PASS** → continue.
+2. **Investigate** the repo: `package.json` dev/start script, framework, URL/port,
    required env/seed. Identify the pages + **real selectors** for the requested
    flow (read component source, or use the Playwright MCP to snapshot the live
    page). Prefer robust selectors: `role=`, `text=`, `[name=...]`, stable ids.
-2. **Run the app** if needed — start the dev server in the background, wait until
+3. **Run the app** if needed — start the dev server in the background, wait until
    the URL responds, and remember to stop it afterward.
-3. **Author a scene** at `./.narrate/tmp/<slug>.scene.json` (format below). Use any
+4. **Author a scene** at `./.narrate/tmp/<slug>.scene.json` (format below). Use any
    credentials/data the user gave; treat signup/email flows as test-only.
-4. **Render** to the temp dir:
+5. **Render** to the temp dir:
    ```bash
    node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" render \
      --scene ./.narrate/tmp/<slug>.scene.json --out ./.narrate/tmp
    ```
-5. **Deliver**: copy `./.narrate/tmp/<slug>.mp4` → `./docs/<slug>.mp4`, ensure
+6. **Deliver**: copy `./.narrate/tmp/<slug>.mp4` → `./docs/<slug>.mp4`, ensure
    `.narrate/` is in the project `.gitignore`, and stop the dev server.
-6. **Report audio + keep temp.** Read `./.narrate/tmp/narrate.log` and quote its
+7. **Report audio + keep temp.** Read `./.narrate/tmp/narrate.log` and quote its
    **"Final audio"** line (stream present? mean volume in dB). Do **not** auto-delete
    `./.narrate/tmp` — it holds the per-beat `audio/`, combined `narration.wav`, raw
    `video/`, scene JSON, the muxed mp4, and `narrate.log`. If the video seems silent,

@@ -7591,6 +7591,9 @@ function loadScene(cwd, scenePath) {
   }
   return scene;
 }
+function apiKeyEnvName(config) {
+  return config.tts.apiKeyEnv ?? KEY_ENV[config.tts.provider];
+}
 function resolveApiKey(config) {
   const envName = config.tts.apiKeyEnv ?? KEY_ENV[config.tts.provider];
   if (!envName) return "";
@@ -8333,9 +8336,78 @@ ${mux.stderr.trim().split("\n").slice(-12).join("\n")}`);
   return finalOut;
 }
 
+// src/project.ts
+import { existsSync as existsSync3, mkdirSync as mkdirSync2, readFileSync as readFileSync3, writeFileSync as writeFileSync4 } from "fs";
+import { join as join5 } from "path";
+var ENV_TEMPLATE = `# Narrate API keys \u2014 this file lives in .narrate/ which is gitignored, so keys here
+# are never committed. Fill in the key for the provider you use.
+
+# Gemini (default provider) \u2014 get a free key at https://aistudio.google.com/apikey
+NARRATE_GEMINI_API_KEY=
+
+# ElevenLabs \u2014 also set tts.provider="elevenlabs" in narrate.config.json
+# NARRATE_ELEVENLABS_API_KEY=
+`;
+function ensureGitignore(cwd, entry) {
+  const p = join5(cwd, ".gitignore");
+  const existing = existsSync3(p) ? readFileSync3(p, "utf8") : "";
+  if (existing.split(/\r?\n/).some((l) => l.trim() === entry)) return;
+  const prefix = existing && !existing.endsWith("\n") ? "\n" : "";
+  writeFileSync4(p, `${existing}${prefix}${entry}
+`);
+}
+function initProject(cwd, log = console.log) {
+  const dir = join5(cwd, ".narrate");
+  mkdirSync2(dir, { recursive: true });
+  const envPath = join5(dir, ".env.narrate");
+  if (existsSync3(envPath)) log(`exists: ${envPath}`);
+  else {
+    writeFileSync4(envPath, ENV_TEMPLATE);
+    log(`created: ${envPath}`);
+  }
+  const cfgPath = join5(dir, "narrate.config.json");
+  if (existsSync3(cfgPath)) log(`exists: ${cfgPath}`);
+  else {
+    writeFileSync4(cfgPath, `${JSON.stringify(ConfigSchema.parse({}), null, 2)}
+`);
+    log(`created: ${cfgPath}`);
+  }
+  ensureGitignore(cwd, ".narrate/");
+  log(
+    "`.narrate/` is gitignored. Edit .narrate/.env.narrate (keys) and narrate.config.json (settings)."
+  );
+}
+function checkEnv(config) {
+  const lines = [];
+  let ok = true;
+  try {
+    ensureFfmpeg();
+    lines.push("ffmpeg:  OK");
+  } catch (err) {
+    ok = false;
+    lines.push(`ffmpeg:  MISSING \u2014 ${err instanceof Error ? err.message : err}`);
+  }
+  lines.push(
+    `config:  provider=${config.tts.provider}, voice=${config.tts.voice}, format=${config.output.format}, crf=${config.output.crf}`
+  );
+  const envName = apiKeyEnvName(config);
+  if (!envName) {
+    lines.push(`TTS key: not required (provider "${config.tts.provider}")`);
+  } else if (process.env[envName]?.trim()) {
+    lines.push(`TTS key: OK (${envName} is set)`);
+  } else {
+    ok = false;
+    lines.push(
+      `TTS key: MISSING \u2014 set ${envName} in .narrate/.env.narrate (or use --provider os for the OS voice / --provider mock for silent)`
+    );
+  }
+  lines.push(`RESULT:  ${ok ? "PASS" : "FAIL"}`);
+  return { ok, lines };
+}
+
 // src/cli.ts
 var program2 = new Command();
-program2.name("narrate").description("Generate a narrated walkthrough video of a website.").version("0.14.0");
+program2.name("narrate").description("Generate a narrated walkthrough video of a website.").version("0.15.0");
 program2.command("render").description("TTS \u2192 record \u2192 mux into one narrated video.").requiredOption("-s, --scene <file>", "scene JSON file").option("-c, --config <file>", "config file (default: narrate.config.json)").option("-o, --out <dir>", "output directory (overrides config output.dir)").option("--provider <name>", "override TTS provider (gemini|elevenlabs|os|mock)").option("--voice <name>", "override voice").action(async (o) => {
   const cwd = process.cwd();
   loadEnv(cwd);
@@ -8347,6 +8419,16 @@ program2.command("render").description("TTS \u2192 record \u2192 mux into one na
   const out = await render(scene, config, { cwd, onLog: (m) => console.log(m) });
   console.log(`
 \u2705 Done \u2192 ${out}`);
+});
+program2.command("init").description("Scaffold .narrate/ (key template + config) in the current project.").action(() => {
+  initProject(process.cwd(), (m) => console.log(m));
+});
+program2.command("check").description("Validate the environment (ffmpeg, config, TTS key). Exits non-zero if not ready.").option("-c, --config <file>", "config file (default: narrate.config.json)").action((o) => {
+  const cwd = process.cwd();
+  loadEnv(cwd);
+  const result = checkEnv(loadConfig(cwd, o.config));
+  for (const line of result.lines) console.log(line);
+  if (!result.ok) process.exit(1);
 });
 program2.command("setup").description("Install Playwright + the Chromium browser (run once after install).").action(async () => {
   await setup((m) => console.log(m));

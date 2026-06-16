@@ -46,19 +46,25 @@ end-to-end (no project, dev server, or website of your own needed) and writes
 ## As a CLI
 
 ```bash
+node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" init      # scaffold .narrate/ (key template + config)
+node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" check     # validate ffmpeg + config + key (exit 0/1)
 node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" render --scene scene.json
 # or in the source monorepo:
 pnpm narrate render --scene packages/plugin/examples/demo.scene.json
 ```
 
-Flags:
+`init` writes `.narrate/.env.narrate` (add your key there) and
+`.narrate/narrate.config.json` (settings), and gitignores `.narrate/`. `check` is a
+deterministic preflight you can run anytime.
+
+Flags (`render`):
 
 | Flag                | Meaning                                            |
 | ------------------- | -------------------------------------------------- |
 | `-s, --scene <f>`   | scene JSON file (required)                          |
 | `-o, --out <dir>`   | output directory (default `out`, or config value)   |
 | `-c, --config <f>`  | config file (default `narrate.config.json`)         |
-| `--provider <p>`    | override TTS provider (`gemini`/`elevenlabs`/`mock`)|
+| `--provider <p>`    | override TTS provider (`gemini`/`elevenlabs`/`os`/`mock`)|
 | `--voice <v>`       | override voice                                      |
 
 Keyless smoke test (silent narration, exercises the whole pipeline):

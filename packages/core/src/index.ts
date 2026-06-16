@@ -1,5 +1,6 @@
 export { render, type RenderOptions } from "./pipeline.js";
-export { loadConfig, loadScene, loadEnv, resolveApiKey } from "./config.js";
+export { loadConfig, loadScene, loadEnv, resolveApiKey, apiKeyEnvName } from "./config.js";
+export { initProject, checkEnv, type CheckResult } from "./project.js";
 export { makeProvider, type TTSProvider } from "./tts/index.js";
 export { PlaywrightRecorder } from "./record/playwright.js";
 export { setup, hasPlaywright } from "./setup.js";

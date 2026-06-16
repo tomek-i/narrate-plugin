@@ -49,6 +49,11 @@ export function loadScene(cwd: string, scenePath: string): Scene {
   return scene;
 }
 
+/** The env var the provider's API key is read from, or null if none is needed. */
+export function apiKeyEnvName(config: Config): string | null {
+  return config.tts.apiKeyEnv ?? KEY_ENV[config.tts.provider];
+}
+
 /** Resolve the API key for the configured provider, with a clear error if missing. */
 export function resolveApiKey(config: Config): string {
   const envName = config.tts.apiKeyEnv ?? KEY_ENV[config.tts.provider];

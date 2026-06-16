@@ -2,6 +2,7 @@
 import { Command } from "commander";
 import { loadConfig, loadEnv, loadScene } from "./config.js";
 import { render } from "./pipeline.js";
+import { checkEnv, initProject } from "./project.js";
 import { setup } from "./setup.js";
 
 const program = new Command();
@@ -9,7 +10,7 @@ const program = new Command();
 program
   .name("narrate")
   .description("Generate a narrated walkthrough video of a website.")
-  .version("0.14.0");
+  .version("0.15.0");
 
 program
   .command("render")
@@ -29,6 +30,25 @@ program
     const scene = loadScene(cwd, o.scene);
     const out = await render(scene, config, { cwd, onLog: (m) => console.log(m) });
     console.log(`\n✅ Done → ${out}`);
+  });
+
+program
+  .command("init")
+  .description("Scaffold .narrate/ (key template + config) in the current project.")
+  .action(() => {
+    initProject(process.cwd(), (m) => console.log(m));
+  });
+
+program
+  .command("check")
+  .description("Validate the environment (ffmpeg, config, TTS key). Exits non-zero if not ready.")
+  .option("-c, --config <file>", "config file (default: narrate.config.json)")
+  .action((o) => {
+    const cwd = process.cwd();
+    loadEnv(cwd);
+    const result = checkEnv(loadConfig(cwd, o.config));
+    for (const line of result.lines) console.log(line);
+    if (!result.ok) process.exit(1);
   });
 
 program
