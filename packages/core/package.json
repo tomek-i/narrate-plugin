@@ -17,7 +17,7 @@
     "gen:schema": "tsx scripts/gen-schema.ts"
   },
   "dependencies": {
-    "commander": "^12.1.0",
+    "commander": "^15.0.0",
     "dotenv": "^16.4.5",
     "playwright": "^1.49.0",
     "zod": "^3.24.0"
