@@ -86,8 +86,18 @@ export function muxNarration(opts: {
   const vcodec =
     format === "webm"
       ? ["libvpx-vp9", "-b:v", "0", "-crf", String(crf)]
-      : // `slow` preset + lower CRF keeps the flat dark UI clean (less banding/blocking).
-        ["libx264", "-preset", "slow", "-crf", String(crf)];
+      : // `slow` preset + lower CRF keeps the flat dark UI clean. ipratio/pbratio=1.0
+        // flatten the per-frame-type quality boost so periodic keyframes (every GOP)
+        // don't visibly "pulse" on otherwise-static screen content.
+        [
+          "libx264",
+          "-preset",
+          "slow",
+          "-crf",
+          String(crf),
+          "-x264-params",
+          "ipratio=1.0:pbratio=1.0",
+        ];
   // MP3 (not AAC) for mp4 audio: VS Code's preview can't decode AAC, while MP3
   // plays everywhere (VS Code preview, browsers, VLC, Windows). Voice at 192k is fine.
   const acodec = format === "webm" ? ["libopus"] : ["libmp3lame", "-b:a", "192k"];

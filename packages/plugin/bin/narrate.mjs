@@ -7660,8 +7660,18 @@ function concatWavs(files, output, listPath) {
 function muxNarration(opts) {
   const { video, audio, leadInSec, fps, format, crf, output } = opts;
   const vcodec = format === "webm" ? ["libvpx-vp9", "-b:v", "0", "-crf", String(crf)] : (
-    // `slow` preset + lower CRF keeps the flat dark UI clean (less banding/blocking).
-    ["libx264", "-preset", "slow", "-crf", String(crf)]
+    // `slow` preset + lower CRF keeps the flat dark UI clean. ipratio/pbratio=1.0
+    // flatten the per-frame-type quality boost so periodic keyframes (every GOP)
+    // don't visibly "pulse" on otherwise-static screen content.
+    [
+      "libx264",
+      "-preset",
+      "slow",
+      "-crf",
+      String(crf),
+      "-x264-params",
+      "ipratio=1.0:pbratio=1.0"
+    ]
   );
   const acodec = format === "webm" ? ["libopus"] : ["libmp3lame", "-b:a", "192k"];
   const filter = [
@@ -8323,7 +8333,7 @@ ${mux.stderr.trim().split("\n").slice(-12).join("\n")}`);
 
 // src/cli.ts
 var program2 = new Command();
-program2.name("narrate").description("Generate a narrated walkthrough video of a website.").version("0.12.0");
+program2.name("narrate").description("Generate a narrated walkthrough video of a website.").version("0.13.0");
 program2.command("render").description("TTS \u2192 record \u2192 mux into one narrated video.").requiredOption("-s, --scene <file>", "scene JSON file").option("-c, --config <file>", "config file (default: narrate.config.json)").option("-o, --out <dir>", "output directory (overrides config output.dir)").option("--provider <name>", "override TTS provider (gemini|elevenlabs|os|mock)").option("--voice <name>", "override voice").action(async (o) => {
   const cwd = process.cwd();
   loadEnv(cwd);
