@@ -32,9 +32,16 @@ ship inside the plugin.
      --scene "${CLAUDE_PLUGIN_ROOT}/examples/demo.scene.json" --out ./.narrate/tmp --provider os
    ```
 
-4. **Deliver & clean up.** Create `./docs/` if needed, copy
-   `./.narrate/tmp/narrate-demo.mp4` → `./docs/narrate-demo.mp4`, ensure the
-   project's `.gitignore` contains `.narrate/`, then delete `./.narrate/tmp`.
+4. **Deliver.** Create `./docs/` if needed and copy
+   `./.narrate/tmp/narrate-demo.mp4` → `./docs/narrate-demo.mp4`. Ensure the
+   project's `.gitignore` contains `.narrate/`.
 
-5. **Report** the path `./docs/narrate-demo.mp4` and explain that this same engine
+5. **Keep temp files, then ask.** Do **not** auto-delete. Tell the user the
+   intermediates are kept at `./.narrate/tmp` for troubleshooting — per-beat audio
+   in `audio/`, the combined `narration.wav`, the raw `video/`, and the muxed
+   `narrate-demo.mp4`. (Tip: play `./.narrate/tmp/narration.wav` to check the audio
+   before the mux.) Then ask **"Remove the temp files now? (y/n)"** and only delete
+   `./.narrate/tmp` if they say yes.
+
+6. **Report** the path `./docs/narrate-demo.mp4` and explain that this same engine
    powers `/narrate-video <prompt>` against the user's own running app.
