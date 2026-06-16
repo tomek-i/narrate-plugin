@@ -12,16 +12,21 @@ const KEY_ENV: Record<string, string | null> = {
   mock: null,
 };
 
-/** Load .env.narrate (gitignored) from the working dir, if present. */
+/**
+ * Load env from `.narrate/.env.narrate` (preferred — the `.narrate/` dir is
+ * gitignored, so keys stored there are never committed) then `.env.narrate` in
+ * the working dir. dotenv won't overwrite already-set vars, so the first wins.
+ */
 export function loadEnv(cwd: string): void {
-  const p = resolve(cwd, ".env.narrate");
-  if (existsSync(p)) dotenv.config({ path: p });
+  for (const p of [resolve(cwd, ".narrate", ".env.narrate"), resolve(cwd, ".env.narrate")]) {
+    if (existsSync(p)) dotenv.config({ path: p });
+  }
 }
 
 export function loadConfig(cwd: string, configPath?: string): Config {
   const candidates = configPath
     ? [resolve(cwd, configPath)]
-    : [resolve(cwd, "narrate.config.json")];
+    : [resolve(cwd, ".narrate", "narrate.config.json"), resolve(cwd, "narrate.config.json")];
   for (const p of candidates) {
     if (existsSync(p)) {
       // zod strips unknown keys, so an editor-only `$schema` is dropped here.

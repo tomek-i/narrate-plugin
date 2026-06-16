@@ -33,10 +33,12 @@ and `setup` (force-install Playwright + Chromium; normally automatic on first re
 - **ffmpeg + ffprobe** on PATH (`ffmpeg -version`) — the only manual dependency.
   Playwright + Chromium are auto-provisioned on the first render.
 - The **target app running** and reachable at the scene's `site` URL.
-- A **TTS API key** as `NARRATE_<PROVIDER>_API_KEY` (in `.env.narrate` or the env).
-  No key? Warn the user and offer to add one (saved to `.env.narrate`, which must be
-  gitignored). If they decline, use `--provider os` (the OS's built-in voice — no
-  key, works on Windows/macOS, needs `espeak` on Linux). `--provider mock` is silent.
+- A **TTS API key** as `NARRATE_<PROVIDER>_API_KEY`. The engine reads it from
+  `.narrate/.env.narrate` (preferred), `.env.narrate`, or the environment. No key?
+  Warn the user and offer to add one — save it to `.narrate/.env.narrate` (that dir
+  is gitignored, so the key is never committed). If they decline, use `--provider os`
+  (the OS's built-in voice — no key; Windows/macOS work, Linux needs `espeak`).
+  `--provider mock` is silent. Per-run settings can also live in `.narrate/narrate.config.json`.
 
 ## Workflow (from a plain-English request)
 

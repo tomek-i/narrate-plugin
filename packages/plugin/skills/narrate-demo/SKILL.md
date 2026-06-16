@@ -13,13 +13,14 @@ ship inside the plugin.
    missing, tell the user how to install it and stop. (Playwright + Chromium are
    auto-provisioned on first run; the first demo may pause to fetch the browser.)
 
-2. **Pick a voice.** Look for a `NARRATE_*` key in the environment or
-   `.env.narrate`. Then:
+2. **Pick a voice.** Look for a `NARRATE_*` key in the environment, in
+   `.narrate/.env.narrate`, or `.env.narrate`. Then:
    - **Key found** → render with that provider (real narration).
    - **No key** → tell the user clearly: *"No TTS API key found."* Offer to add one
      (e.g. a free Gemini key from https://aistudio.google.com/apikey). If they give
-     one, save it to `./.env.narrate` as `NARRATE_GEMINI_API_KEY=…`, ensure
-     `.env.narrate` is in the project `.gitignore`, then use it.
+     one, save it to **`./.narrate/.env.narrate`** as `NARRATE_GEMINI_API_KEY=…` —
+     because `.narrate/` is gitignored, the key is never committed (no need to edit
+     `.gitignore`). The engine reads keys and `narrate.config.json` from `.narrate/` too.
    - **They decline** → use `--provider os` (the operating system's built-in
      voice — Windows/macOS sound fine; Linux needs `espeak`, else it's silent).
      Mention quality is basic but needs no key. `--provider mock` is the silent option.

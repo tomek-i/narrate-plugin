@@ -7567,11 +7567,12 @@ var KEY_ENV = {
   mock: null
 };
 function loadEnv(cwd) {
-  const p = resolve(cwd, ".env.narrate");
-  if (existsSync(p)) import_dotenv.default.config({ path: p });
+  for (const p of [resolve(cwd, ".narrate", ".env.narrate"), resolve(cwd, ".env.narrate")]) {
+    if (existsSync(p)) import_dotenv.default.config({ path: p });
+  }
 }
 function loadConfig(cwd, configPath) {
-  const candidates = configPath ? [resolve(cwd, configPath)] : [resolve(cwd, "narrate.config.json")];
+  const candidates = configPath ? [resolve(cwd, configPath)] : [resolve(cwd, ".narrate", "narrate.config.json"), resolve(cwd, "narrate.config.json")];
   for (const p of candidates) {
     if (existsSync(p)) {
       return ConfigSchema.parse(JSON.parse(readFileSync(p, "utf8")));
@@ -8124,13 +8125,27 @@ function windows(text, voice) {
     `$s.SetOutputToWaveFile('${wav}');$s.Speak($t);$s.Dispose();`
   ].join("");
   const args = ["-NoProfile", "-NonInteractive", "-Command", ps];
-  try {
-    run("powershell", args);
-  } catch {
-    run("pwsh", args);
+  const sysRoot = process.env.SystemRoot ?? process.env.windir ?? "C:\\Windows";
+  const candidates = [
+    join3(sysRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
+    "powershell",
+    "pwsh"
+  ];
+  let ran = false;
+  let lastErr;
+  for (const exe of candidates) {
+    try {
+      run(exe, args);
+      ran = true;
+      break;
+    } catch (err) {
+      lastErr = err;
+    }
   }
+  if (!ran) throw lastErr ?? new Error("no PowerShell found");
   const audio = readFileSync2(wav);
   s.clean();
+  if (audio.length <= 44) throw new Error("PowerShell TTS produced an empty WAV");
   return { audio, ext: "wav" };
 }
 function macos(text, voice) {
@@ -8239,7 +8254,7 @@ async function render(scene, config, opts) {
 
 // src/cli.ts
 var program2 = new Command();
-program2.name("narrate").description("Generate a narrated walkthrough video of a website.").version("0.3.0");
+program2.name("narrate").description("Generate a narrated walkthrough video of a website.").version("0.4.0");
 program2.command("render").description("TTS \u2192 record \u2192 mux into one narrated video.").requiredOption("-s, --scene <file>", "scene JSON file").option("-c, --config <file>", "config file (default: narrate.config.json)").option("-o, --out <dir>", "output directory (overrides config output.dir)").option("--provider <name>", "override TTS provider (gemini|elevenlabs|os|mock)").option("--voice <name>", "override voice").action(async (o) => {
   const cwd = process.cwd();
   loadEnv(cwd);

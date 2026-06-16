@@ -68,13 +68,29 @@ function windows(text: string, voice?: string): SynthResult {
     `$s.SetOutputToWaveFile('${wav}');$s.Speak($t);$s.Dispose();`,
   ].join("");
   const args = ["-NoProfile", "-NonInteractive", "-Command", ps];
-  try {
-    run("powershell", args);
-  } catch {
-    run("pwsh", args); // PowerShell 7 if Windows PowerShell isn't present
+  // Resolve powershell.exe by absolute path first — when this runs from a
+  // spawned shell (e.g. Git Bash) System32 isn't always on PATH.
+  const sysRoot = process.env.SystemRoot ?? process.env.windir ?? "C:\\Windows";
+  const candidates = [
+    join(sysRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
+    "powershell",
+    "pwsh",
+  ];
+  let ran = false;
+  let lastErr: unknown;
+  for (const exe of candidates) {
+    try {
+      run(exe, args);
+      ran = true;
+      break;
+    } catch (err) {
+      lastErr = err;
+    }
   }
+  if (!ran) throw lastErr ?? new Error("no PowerShell found");
   const audio = readFileSync(wav);
   s.clean();
+  if (audio.length <= 44) throw new Error("PowerShell TTS produced an empty WAV");
   return { audio, ext: "wav" };
 }
 

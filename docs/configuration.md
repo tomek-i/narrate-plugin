@@ -27,8 +27,11 @@ Override per run with `--provider`, `--voice`, and `--out`.
 
 ## TTS providers & API keys
 
-Keys live in **`.env.narrate`** (gitignored), namespaced with `NARRATE_` to avoid
-colliding with your app's own keys:
+Keys live in a `.env.narrate` file, namespaced with `NARRATE_` to avoid colliding
+with your app's own keys. The engine looks in **`.narrate/.env.narrate`** first
+(the `.narrate/` dir is gitignored, so a key there is never committed — preferred),
+then `.env.narrate` in the project root, then the environment. `narrate.config.json`
+is likewise read from `.narrate/` first, then the root.
 
 | Provider     | Env var                      | Notes                                  |
 | ------------ | ---------------------------- | -------------------------------------- |
