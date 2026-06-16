@@ -7755,13 +7755,15 @@ var PlaywrightRecorder = class {
     const context = await browser.newContext({
       viewport: size,
       recordVideo: { dir: join2(this.outDir, "video"), size },
-      deviceScaleFactor: 1
+      deviceScaleFactor: 1,
+      // Emulate the OS/browser color scheme (the standard `prefers-color-scheme`).
+      // Sites with a manual toggle should drive it with a click/menu step instead.
+      ...scene.theme ? { colorScheme: COLOR_SCHEME[scene.theme] } : {}
     });
     const contextStart = Date.now();
     const page = await context.newPage();
     try {
       await page.goto(scene.site, { waitUntil: "networkidle" });
-      if (scene.theme) await applyTheme(page, scene.theme);
       await page.evaluate(() => window.scrollTo(0, 0));
       await page.waitForTimeout(400);
       const t0 = Date.now();
@@ -7788,18 +7790,11 @@ var PlaywrightRecorder = class {
     }
   }
 };
-async function applyTheme(page, theme) {
-  await page.evaluate((t) => {
-    try {
-      localStorage.setItem("theme", t);
-    } catch {
-    }
-    const el = document.documentElement;
-    el.classList.remove("light", "dark");
-    if (t !== "system") el.classList.add(t);
-    el.style.colorScheme = t;
-  }, theme);
-}
+var COLOR_SCHEME = {
+  light: "light",
+  dark: "dark",
+  system: "no-preference"
+};
 async function settle(page) {
   await page.waitForLoadState("networkidle").catch(() => {
   });

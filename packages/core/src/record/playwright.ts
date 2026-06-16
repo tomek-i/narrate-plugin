@@ -48,13 +48,15 @@ export class PlaywrightRecorder implements Recorder {
       viewport: size,
       recordVideo: { dir: join(this.outDir, "video"), size },
       deviceScaleFactor: 1,
+      // Emulate the OS/browser color scheme (the standard `prefers-color-scheme`).
+      // Sites with a manual toggle should drive it with a click/menu step instead.
+      ...(scene.theme ? { colorScheme: COLOR_SCHEME[scene.theme] } : {}),
     });
     const contextStart = Date.now();
     const page = await context.newPage();
 
     try {
       await page.goto(scene.site, { waitUntil: "networkidle" });
-      if (scene.theme) await applyTheme(page, scene.theme);
       await page.evaluate(() => window.scrollTo(0, 0));
       await page.waitForTimeout(400); // let fonts/layout settle
 
@@ -88,17 +90,12 @@ export class PlaywrightRecorder implements Recorder {
   }
 }
 
-async function applyTheme(page: Page, theme: "light" | "dark" | "system"): Promise<void> {
-  await page.evaluate((t) => {
-    try {
-      localStorage.setItem("theme", t);
-    } catch {}
-    const el = document.documentElement;
-    el.classList.remove("light", "dark");
-    if (t !== "system") el.classList.add(t);
-    (el.style as CSSStyleDeclaration).colorScheme = t;
-  }, theme);
-}
+/** Map a scene `theme` to Playwright's `prefers-color-scheme` emulation value. */
+const COLOR_SCHEME = {
+  light: "light",
+  dark: "dark",
+  system: "no-preference",
+} as const;
 
 // Steps that may trigger a navigation; swallow networkidle timeouts on SPAs.
 async function settle(page: Page): Promise<void> {

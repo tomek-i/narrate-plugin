@@ -117,6 +117,8 @@ Selectors are real Playwright selectors. Steps run in order within a beat.
 - **Config:** `narrate.config.json` sets provider/voice/output (default Gemini +
   "Kore"). Override per-run with `--provider` / `--voice`. For ElevenLabs: set
   `tts.provider: "elevenlabs"`, a voice id in `tts.voice`, and `NARRATE_ELEVENLABS_API_KEY`.
-- **Theme:** scene-level `theme` is applied `next-themes`-style (sets
-  `localStorage.theme`, toggles `light`/`dark` on `<html>`, sets `color-scheme`).
-  If the app themes differently, drive its toggle with a `menu`/`click`/`eval` step.
+- **Theme:** the optional scene-level `theme` emulates the browser's
+  `prefers-color-scheme` (the standard OS/browser color-scheme signal), so it
+  works for any site that honors that media query. Apps with a *manual* toggle
+  (a button/switch) won't change from this alone — drive that toggle with a
+  `click`/`menu` step. Omit `theme` entirely if it doesn't apply.

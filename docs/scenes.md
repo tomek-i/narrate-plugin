@@ -10,7 +10,7 @@ visual actions (`do`) shown while it plays.
   "name": "signup",                            // output file = <name>.mp4
   "site": "http://localhost:3000",
   "viewport": { "width": 1440, "height": 900 },
-  "theme": "dark",                              // optional: light | dark | system
+  "theme": "dark",                              // optional; emulates prefers-color-scheme (light | dark | system)
   "beats": [
     {
       "id": "intro",
@@ -38,6 +38,13 @@ visual actions (`do`) shown while it plays.
 Each beat is held on screen for **exactly its narration length**. Keep a beat's
 `do` steps shorter than its spoken line; if the steps overrun, the engine logs a
 warning so you can split the beat or lengthen the narration.
+
+## Theme
+
+The optional `theme` emulates the browser's `prefers-color-scheme`, so it works
+for any site that honors that media query. Sites with a *manual* theme toggle
+(a button/switch) won't change from this alone — drive that toggle with a
+`click`/`menu` step. Omit `theme` if it doesn't apply.
 
 ## Step reference
 
