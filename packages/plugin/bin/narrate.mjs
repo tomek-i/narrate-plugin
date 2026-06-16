@@ -7555,8 +7555,10 @@ var ConfigSchema = external_exports.object({
     width: external_exports.number().default(1440),
     height: external_exports.number().default(900),
     fps: external_exports.number().default(25),
-    format: external_exports.enum(["mp4", "webm"]).default("mp4")
-  }).default({ dir: "out", width: 1440, height: 900, fps: 25, format: "mp4" })
+    format: external_exports.enum(["mp4", "webm"]).default("mp4"),
+    /** Encode quality (x264/vp9 CRF). Lower = higher quality/less banding. */
+    crf: external_exports.number().default(18)
+  }).default({ dir: "out", width: 1440, height: 900, fps: 25, format: "mp4", crf: 18 })
 });
 
 // src/config.ts
@@ -7656,8 +7658,11 @@ function concatWavs(files, output, listPath) {
   );
 }
 function muxNarration(opts) {
-  const { video, audio, leadInSec, fps, format, output } = opts;
-  const vcodec = format === "webm" ? ["libvpx-vp9", "-b:v", "0", "-crf", "30"] : ["libx264", "-preset", "medium", "-crf", "20"];
+  const { video, audio, leadInSec, fps, format, crf, output } = opts;
+  const vcodec = format === "webm" ? ["libvpx-vp9", "-b:v", "0", "-crf", String(crf)] : (
+    // `slow` preset + lower CRF keeps the flat dark UI clean (less banding/blocking).
+    ["libx264", "-preset", "slow", "-crf", String(crf)]
+  );
   const acodec = format === "webm" ? ["libopus"] : ["libmp3lame", "-b:a", "192k"];
   const filter = [
     `[0:v]trim=start=${leadInSec.toFixed(3)},setpts=PTS-STARTPTS,fps=${fps},format=yuv420p[v]`,
@@ -8290,6 +8295,7 @@ async function render(scene, config, opts) {
     leadInSec: leadInMs / 1e3,
     fps: config.output.fps,
     format: config.output.format,
+    crf: config.output.crf,
     output: finalOut
   });
   log(`Mux command:
@@ -8317,7 +8323,7 @@ ${mux.stderr.trim().split("\n").slice(-12).join("\n")}`);
 
 // src/cli.ts
 var program2 = new Command();
-program2.name("narrate").description("Generate a narrated walkthrough video of a website.").version("0.11.0");
+program2.name("narrate").description("Generate a narrated walkthrough video of a website.").version("0.12.0");
 program2.command("render").description("TTS \u2192 record \u2192 mux into one narrated video.").requiredOption("-s, --scene <file>", "scene JSON file").option("-c, --config <file>", "config file (default: narrate.config.json)").option("-o, --out <dir>", "output directory (overrides config output.dir)").option("--provider <name>", "override TTS provider (gemini|elevenlabs|os|mock)").option("--voice <name>", "override voice").action(async (o) => {
   const cwd = process.cwd();
   loadEnv(cwd);

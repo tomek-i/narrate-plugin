@@ -79,13 +79,15 @@ export function muxNarration(opts: {
   leadInSec: number;
   fps: number;
   format: "mp4" | "webm";
+  crf: number;
   output: string;
 }): { command: string; stderr: string } {
-  const { video, audio, leadInSec, fps, format, output } = opts;
+  const { video, audio, leadInSec, fps, format, crf, output } = opts;
   const vcodec =
     format === "webm"
-      ? ["libvpx-vp9", "-b:v", "0", "-crf", "30"]
-      : ["libx264", "-preset", "medium", "-crf", "20"];
+      ? ["libvpx-vp9", "-b:v", "0", "-crf", String(crf)]
+      : // `slow` preset + lower CRF keeps the flat dark UI clean (less banding/blocking).
+        ["libx264", "-preset", "slow", "-crf", String(crf)];
   // MP3 (not AAC) for mp4 audio: VS Code's preview can't decode AAC, while MP3
   // plays everywhere (VS Code preview, browsers, VLC, Windows). Voice at 192k is fine.
   const acodec = format === "webm" ? ["libopus"] : ["libmp3lame", "-b:a", "192k"];

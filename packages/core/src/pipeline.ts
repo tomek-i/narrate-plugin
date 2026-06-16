@@ -90,6 +90,7 @@ export async function render(scene: Scene, config: Config, opts: RenderOptions):
     leadInSec: leadInMs / 1000,
     fps: config.output.fps,
     format: config.output.format,
+    crf: config.output.crf,
     output: finalOut,
   });
   log(`Mux command:\n${mux.command}`);

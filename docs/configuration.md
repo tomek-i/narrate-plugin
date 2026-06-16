@@ -18,10 +18,15 @@ Committable (no secrets). All fields are optional — omit the file to use defau
     "width": 1440,
     "height": 900,
     "fps": 25,
-    "format": "mp4"                            // mp4 | webm
+    "format": "mp4",                           // mp4 | webm
+    "crf": 18                                  // encode quality; lower = sharper / less banding (try 16 for very flat dark UIs)
   }
 }
 ```
+
+mp4 output uses H.264 video + **MP3** audio (MP3 so VS Code's preview, which can't
+decode AAC, still plays sound) with `+faststart`. If a dark/flat UI shows banding
+or blocking, lower `crf` (e.g. 16).
 
 Override per run with `--provider`, `--voice`, and `--out`.
 

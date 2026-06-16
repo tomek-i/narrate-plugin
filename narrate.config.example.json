@@ -10,6 +10,7 @@
     "width": 1440,
     "height": 900,
     "fps": 25,
-    "format": "mp4"
+    "format": "mp4",
+    "crf": 18
   }
 }
