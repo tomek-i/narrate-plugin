@@ -10,6 +10,7 @@
   },
   "license": "MIT",
   "type": "module",
+  "packageManager": "pnpm@10.33.2",
   "scripts": {
     "narrate": "tsx packages/core/src/cli.ts",
     "render": "tsx packages/core/src/cli.ts render",
@@ -24,5 +25,8 @@
     "@types/node": "^22.10.0",
     "tsx": "^4.21.0",
     "typescript": "^5.7.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["@biomejs/biome", "esbuild"]
   }
 }

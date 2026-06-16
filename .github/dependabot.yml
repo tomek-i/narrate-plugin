@@ -1,0 +1,19 @@
+version: 2
+updates:
+  # npm/pnpm dependencies across the workspace.
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      # Batch routine updates into one PR to cut noise.
+      dependencies:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  # Keep GitHub Actions pinned to current versions.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
