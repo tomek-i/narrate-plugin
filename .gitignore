@@ -20,6 +20,9 @@ out/
 !.env.narrate.example
 narrate.config.json
 
+# local reference material (original POC), not part of the package
+_reference/
+
 # os / editor
 .DS_Store
 Thumbs.db

@@ -65,11 +65,13 @@ export function concatWavs(files: string[], output: string, listPath: string): v
 /**
  * Trim the lead-in from the front of the recording and overlay the narration.
  *
- * The video is trimmed with a `trim`+`setpts` filter (not an input `-ss` seek):
- * browser `recordVideo` webms (Chromium, and especially Edge/Chrome channels)
- * have irregular start timestamps, and an input seek combined with `-shortest`
- * could drop the muxed audio entirely. Trimming via filter rebases the video to
- * PTS 0 so it aligns with the narration (input 1) regardless of the source.
+ * Both streams are routed through the filtergraph and mapped by label — the
+ * video is trimmed + rebased to PTS 0, and the audio is re-timed with
+ * `aresample`. Browser `recordVideo` webms (Chromium, and especially the
+ * Edge/Chrome channels) have irregular start timestamps; direct-mapping the
+ * audio alongside a filtered video drops it on those recordings. Mapping the
+ * audio through the graph (the approach that works in the reference POC) keeps
+ * it. Verify afterwards with `hasAudioStream`.
  */
 export function muxNarration(opts: {
   video: string;
@@ -85,7 +87,10 @@ export function muxNarration(opts: {
       ? ["libvpx-vp9", "-b:v", "0", "-crf", "30"]
       : ["libx264", "-preset", "medium", "-crf", "20"];
   const acodec = format === "webm" ? ["libopus"] : ["aac", "-b:a", "192k"];
-  const trim = `[0:v]trim=start=${leadInSec.toFixed(3)},setpts=PTS-STARTPTS,fps=${fps},format=yuv420p[v]`;
+  const filter = [
+    `[0:v]trim=start=${leadInSec.toFixed(3)},setpts=PTS-STARTPTS,fps=${fps},format=yuv420p[v]`,
+    "[1:a]aresample=async=1:first_pts=0[a]",
+  ].join(";");
   execFileSync(
     "ffmpeg",
     [
@@ -95,13 +100,15 @@ export function muxNarration(opts: {
       "-i",
       audio,
       "-filter_complex",
-      trim,
+      filter,
       "-map",
       "[v]",
       "-map",
-      "1:a",
+      "[a]",
       "-c:v",
       ...vcodec,
+      "-pix_fmt",
+      "yuv420p",
       "-c:a",
       ...acodec,
       "-shortest",
@@ -109,4 +116,24 @@ export function muxNarration(opts: {
     ],
     { stdio: "inherit" },
   );
+}
+
+/** True if the file has at least one audio stream (post-mux sanity check). */
+export function hasAudioStream(file: string): boolean {
+  const out = execFileSync(
+    "ffprobe",
+    [
+      "-v",
+      "error",
+      "-select_streams",
+      "a",
+      "-show_entries",
+      "stream=codec_name",
+      "-of",
+      "csv=p=0",
+      file,
+    ],
+    { encoding: "utf8" },
+  );
+  return out.trim().length > 0;
 }

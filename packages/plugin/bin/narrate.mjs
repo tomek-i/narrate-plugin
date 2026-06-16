@@ -7659,7 +7659,10 @@ function muxNarration(opts) {
   const { video, audio, leadInSec, fps, format, output } = opts;
   const vcodec = format === "webm" ? ["libvpx-vp9", "-b:v", "0", "-crf", "30"] : ["libx264", "-preset", "medium", "-crf", "20"];
   const acodec = format === "webm" ? ["libopus"] : ["aac", "-b:a", "192k"];
-  const trim = `[0:v]trim=start=${leadInSec.toFixed(3)},setpts=PTS-STARTPTS,fps=${fps},format=yuv420p[v]`;
+  const filter = [
+    `[0:v]trim=start=${leadInSec.toFixed(3)},setpts=PTS-STARTPTS,fps=${fps},format=yuv420p[v]`,
+    "[1:a]aresample=async=1:first_pts=0[a]"
+  ].join(";");
   execFileSync(
     "ffmpeg",
     [
@@ -7669,13 +7672,15 @@ function muxNarration(opts) {
       "-i",
       audio,
       "-filter_complex",
-      trim,
+      filter,
       "-map",
       "[v]",
       "-map",
-      "1:a",
+      "[a]",
       "-c:v",
       ...vcodec,
+      "-pix_fmt",
+      "yuv420p",
       "-c:a",
       ...acodec,
       "-shortest",
@@ -7683,6 +7688,24 @@ function muxNarration(opts) {
     ],
     { stdio: "inherit" }
   );
+}
+function hasAudioStream(file) {
+  const out = execFileSync(
+    "ffprobe",
+    [
+      "-v",
+      "error",
+      "-select_streams",
+      "a",
+      "-show_entries",
+      "stream=codec_name",
+      "-of",
+      "csv=p=0",
+      file
+    ],
+    { encoding: "utf8" }
+  );
+  return out.trim().length > 0;
 }
 
 // src/record/playwright.ts
@@ -8247,12 +8270,17 @@ async function render(scene, config, opts) {
     format: config.output.format,
     output: finalOut
   });
+  if (!hasAudioStream(finalOut)) {
+    log(
+      "\u26A0\uFE0F  Warning: the final video has no audio stream \u2014 the mux dropped the narration. Please report this (include your OS and how the browser was launched)."
+    );
+  }
   return finalOut;
 }
 
 // src/cli.ts
 var program2 = new Command();
-program2.name("narrate").description("Generate a narrated walkthrough video of a website.").version("0.7.0");
+program2.name("narrate").description("Generate a narrated walkthrough video of a website.").version("0.8.0");
 program2.command("render").description("TTS \u2192 record \u2192 mux into one narrated video.").requiredOption("-s, --scene <file>", "scene JSON file").option("-c, --config <file>", "config file (default: narrate.config.json)").option("-o, --out <dir>", "output directory (overrides config output.dir)").option("--provider <name>", "override TTS provider (gemini|elevenlabs|os|mock)").option("--voice <name>", "override voice").action(async (o) => {
   const cwd = process.cwd();
   loadEnv(cwd);

@@ -4,6 +4,7 @@ import { pathToFileURL } from "node:url";
 import {
   concatWavs,
   ensureFfmpeg,
+  hasAudioStream,
   muxNarration,
   normalizeToWav,
   probeDuration,
@@ -80,6 +81,14 @@ export async function render(scene: Scene, config: Config, opts: RenderOptions):
     format: config.output.format,
     output: finalOut,
   });
+
+  // Sanity check: the muxed video must carry an audio track.
+  if (!hasAudioStream(finalOut)) {
+    log(
+      "⚠️  Warning: the final video has no audio stream — the mux dropped the narration. " +
+        "Please report this (include your OS and how the browser was launched).",
+    );
+  }
 
   return finalOut;
 }

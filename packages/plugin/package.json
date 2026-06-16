@@ -1,6 +1,6 @@
 {
   "name": "@narrate/plugin",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "private": true,
   "type": "module",
   "description": "Claude Code plugin: generate narrated walkthrough videos of a website.",
