@@ -9,7 +9,7 @@ const program = new Command();
 program
   .name("narrate")
   .description("Generate a narrated walkthrough video of a website.")
-  .version("0.10.0");
+  .version("0.11.0");
 
 program
   .command("render")

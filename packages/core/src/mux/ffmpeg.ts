@@ -86,7 +86,9 @@ export function muxNarration(opts: {
     format === "webm"
       ? ["libvpx-vp9", "-b:v", "0", "-crf", "30"]
       : ["libx264", "-preset", "medium", "-crf", "20"];
-  const acodec = format === "webm" ? ["libopus"] : ["aac", "-b:a", "192k"];
+  // MP3 (not AAC) for mp4 audio: VS Code's preview can't decode AAC, while MP3
+  // plays everywhere (VS Code preview, browsers, VLC, Windows). Voice at 192k is fine.
+  const acodec = format === "webm" ? ["libopus"] : ["libmp3lame", "-b:a", "192k"];
   const filter = [
     `[0:v]trim=start=${leadInSec.toFixed(3)},setpts=PTS-STARTPTS,fps=${fps},format=yuv420p[v]`,
     "[1:a]aresample=async=1:first_pts=0[a]",
