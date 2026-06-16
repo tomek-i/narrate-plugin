@@ -4,7 +4,7 @@ Generate **narrated walkthrough videos** of a web app. Describe what you want
 demoed; narrate scripts the walkthrough, records the browser, speaks each step
 with a TTS voice, and produces a single narrated MP4.
 
-It runs as a **Claude Code plugin** (`/narrate <prompt>`) and as a standalone
+It runs as a **Claude Code plugin** (`/narrate-video <prompt>`) and as a standalone
 **CLI / library** (`@narrate/core`). The browser is recorded in one continuous
 headless pass paced to the narration, so audio lines up with **zero manual
 syncing** — see [docs/architecture.md](./docs/architecture.md).
@@ -14,15 +14,15 @@ syncing** — see [docs/architecture.md](./docs/architecture.md).
 **As a Claude Code plugin** — install, then ask from inside any project:
 
 ```
-/plugin marketplace add tomek-i/narrate
+/plugin marketplace add tomek-i/narrate-plugin
 /plugin install narrate@narrate-marketplace
 
 /narrate-demo                                              # see it work, zero setup
-/narrate the signup flow using test@example.com and a valid password
+/narrate-video the signup flow using test@example.com and a valid password
 ```
 
-`/narrate-demo` renders a built-in demo app end-to-end. `/narrate <prompt>` gets
-*your* app running, scripts the scene, records it, and drops the video at
+`/narrate-demo` renders a built-in demo app end-to-end. `/narrate-video <prompt>`
+gets *your* app running, scripts the scene, records it, and drops the video at
 `./docs/<slug>.mp4`.
 
 **As a CLI:**

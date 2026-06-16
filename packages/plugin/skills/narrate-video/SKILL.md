@@ -1,9 +1,14 @@
 ---
-name: narrate-walkthrough
+name: narrate-video
 description: Generate a narrated walkthrough video of a running web app. Use when the user asks to record, narrate, or produce a video tour / screencast / demo of a website or feature, or create a walkthrough with voiceover.
+argument-hint: "[what to demo, e.g. the signup flow with test@example.com]"
 ---
 
 # Narrate a walkthrough video
+
+If you were invoked with a request (the user's words, available as `$ARGUMENTS`),
+treat that as the walkthrough to produce. If it's empty, ask what flow/feature to
+demo and for any test credentials or data needed.
 
 Produce a narrated video tour using the bundled `@narrate/core` engine: it
 generates speech with a TTS provider, records the browser continuously with a

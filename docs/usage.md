@@ -1,37 +1,38 @@
 # Usage
 
-Two ways to use narrate: as a **Claude Code plugin** (`/narrate`) or as a
+Two ways to use narrate: as a **Claude Code plugin** (`/narrate-video`) or as a
 **standalone CLI**.
 
 ## Requirements
 
 - **Node ≥ 18**
-- **ffmpeg + ffprobe** on your PATH — the only manual dependency
-  (Playwright + Chromium are auto-provisioned on the first render)
-- A **TTS API key** (Gemini by default), or `--provider mock` for a keyless,
-  silent dry run. See [configuration.md](./configuration.md).
+- **ffmpeg + ffprobe** on your PATH — the only manual dependency. The Playwright
+  package is auto-installed on first render and an installed Edge/Chrome is used
+  if present (otherwise Chromium is downloaded once).
+- For real narration, a **TTS API key** (Gemini by default). No key? `--provider os`
+  uses the OS voice, or `--provider mock` is silent. See [configuration.md](./configuration.md).
 
 ## As a Claude Code plugin
 
 Install from the marketplace:
 
 ```
-/plugin marketplace add tomek-i/narrate
+/plugin marketplace add tomek-i/narrate-plugin
 /plugin install narrate@narrate-marketplace
 ```
 
 Then, from inside any project, describe what you want demoed:
 
 ```
-/narrate the signup flow using test@example.com and a valid password
+/narrate-video the signup flow using test@example.com and a valid password
 ```
 
 The agent investigates the project, starts the dev server, scripts the
 walkthrough as a scene, records + narrates it, and drops the finished video in
 your repo. You can also just ask in plain language ("record a narrated
-walkthrough of the dashboard") — the `narrate-walkthrough` skill handles it.
+walkthrough of the dashboard") — the `narrate-video` skill auto-triggers.
 
-Not sure it's wired up? Run **`/narrate-demo`** — it renders a built-in demo app
+Not sure it's wired up? Run **`/narrate-demo`** (skill) — it renders a built-in demo app
 end-to-end (no project, dev server, or website of your own needed) and writes
 `./docs/narrate-demo.mp4`.
 

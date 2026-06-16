@@ -1,5 +1,6 @@
 ---
-description: Render the built-in Aurora demo to showcase the narrate plugin end-to-end (no project setup needed).
+name: narrate-demo
+description: Render the built-in Aurora demo to showcase the narrate plugin end-to-end (no project setup needed). Use when the user wants to try narrate or verify it works without their own site.
 ---
 
 Render the plugin's **self-contained demo** so the user can see narrate working
@@ -35,4 +36,4 @@ ship inside the plugin.
    project's `.gitignore` contains `.narrate/`, then delete `./.narrate/tmp`.
 
 5. **Report** the path `./docs/narrate-demo.mp4` and explain that this same engine
-   powers `/narrate <prompt>` against the user's own running app.
+   powers `/narrate-video <prompt>` against the user's own running app.
