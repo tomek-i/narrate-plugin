@@ -31,6 +31,10 @@ walkthrough as a scene, records + narrates it, and drops the finished video in
 your repo. You can also just ask in plain language ("record a narrated
 walkthrough of the dashboard") — the `narrate-walkthrough` skill handles it.
 
+Not sure it's wired up? Run **`/narrate-demo`** — it renders a built-in demo app
+end-to-end (no project, dev server, or website of your own needed) and writes
+`./docs/narrate-demo.mp4`.
+
 ### Conventions
 
 - Intermediate files (scene JSON, per-beat audio, raw video) go in
@@ -43,7 +47,7 @@ walkthrough of the dashboard") — the `narrate-walkthrough` skill handles it.
 ```bash
 node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" render --scene scene.json
 # or in the source monorepo:
-pnpm narrate render --scene scenes/portfolio.example.json
+pnpm narrate render --scene packages/plugin/examples/demo.scene.json
 ```
 
 Flags:
@@ -59,7 +63,7 @@ Flags:
 Keyless smoke test (silent narration, exercises the whole pipeline):
 
 ```bash
-pnpm narrate render --scene scenes/portfolio.example.json --provider mock
+pnpm narrate render --scene packages/plugin/examples/demo.scene.json --provider mock
 ```
 
 Authoring scenes (format + full step reference): [scenes.md](./scenes.md).

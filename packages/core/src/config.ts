@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import dotenv from "dotenv";
 import { type Config, ConfigSchema, type Scene, SceneSchema } from "./types.js";
 
@@ -33,7 +34,13 @@ export function loadConfig(cwd: string, configPath?: string): Config {
 export function loadScene(cwd: string, scenePath: string): Scene {
   const p = resolve(cwd, scenePath);
   if (!existsSync(p)) throw new Error(`Scene file not found: ${p}`);
-  return SceneSchema.parse(JSON.parse(readFileSync(p, "utf8")));
+  const scene = SceneSchema.parse(JSON.parse(readFileSync(p, "utf8")));
+  // A `site` that isn't a URL is a local file path, resolved relative to the
+  // scene file so example/demo scenes stay portable wherever the repo lives.
+  if (!/^(https?|file):\/\//i.test(scene.site)) {
+    scene.site = pathToFileURL(resolve(dirname(p), scene.site)).href;
+  }
+  return scene;
 }
 
 /** Resolve the API key for the configured provider, with a clear error if missing. */

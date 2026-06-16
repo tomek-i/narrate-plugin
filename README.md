@@ -17,18 +17,20 @@ syncing** — see [docs/architecture.md](./docs/architecture.md).
 /plugin marketplace add tomek-i/narrate
 /plugin install narrate@narrate-marketplace
 
+/narrate-demo                                              # see it work, zero setup
 /narrate the signup flow using test@example.com and a valid password
 ```
 
-The agent gets your app running, scripts the scene, records it, and drops the
-video at `./docs/<slug>.mp4`.
+`/narrate-demo` renders a built-in demo app end-to-end. `/narrate <prompt>` gets
+*your* app running, scripts the scene, records it, and drops the video at
+`./docs/<slug>.mp4`.
 
 **As a CLI:**
 
 ```bash
 pnpm install
-pnpm narrate render --scene scenes/portfolio.example.json --provider mock
-# → out/portfolio.mp4   (mock = silent dry run, no API key needed)
+pnpm narrate render --scene packages/plugin/examples/demo.scene.json --provider mock
+# → out/narrate-demo.mp4   (mock = silent dry run, no API key needed)
 ```
 
 ## Requirements

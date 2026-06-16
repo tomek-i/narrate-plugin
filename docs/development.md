@@ -42,7 +42,7 @@ If you change the zod schemas in `src/types.ts`, also run `gen:schema` so the
 ## Testing the full pipeline without a key
 
 ```bash
-pnpm narrate render --scene scenes/portfolio.example.json --provider mock
+pnpm narrate render --scene packages/plugin/examples/demo.scene.json --provider mock
 ```
 
 `mock` produces silent audio sized to the text, so it exercises TTS timing,

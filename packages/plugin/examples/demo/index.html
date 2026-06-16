@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Aurora — a tiny demo app</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #ffffff;
+        --fg: #0f172a;
+        --muted: #475569;
+        --card: #f1f5f9;
+        --accent: #6366f1;
+        --accent-fg: #ffffff;
+        --border: #e2e8f0;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0b1120;
+          --fg: #e2e8f0;
+          --muted: #94a3b8;
+          --card: #15203a;
+          --accent: #818cf8;
+          --accent-fg: #0b1120;
+          --border: #1e293b;
+        }
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        background: var(--bg);
+        color: var(--fg);
+        line-height: 1.6;
+      }
+      header {
+        position: sticky; top: 0;
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 1rem 2rem;
+        background: color-mix(in srgb, var(--bg) 85%, transparent);
+        backdrop-filter: blur(8px);
+        border-bottom: 1px solid var(--border);
+      }
+      .brand { font-weight: 700; font-size: 1.25rem; letter-spacing: -0.02em; }
+      .brand span { color: var(--accent); }
+      nav a { color: var(--muted); text-decoration: none; margin-left: 1.5rem; }
+      main { max-width: 880px; margin: 0 auto; padding: 0 1.5rem; }
+      section { padding: 5rem 0; }
+      .hero h1 { font-size: clamp(2rem, 6vw, 3.5rem); line-height: 1.1; margin: 0 0 1rem; letter-spacing: -0.03em; }
+      .hero p { font-size: 1.25rem; color: var(--muted); max-width: 38ch; }
+      .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1.25rem; }
+      .card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 1.5rem; }
+      .card h3 { margin: 0 0 0.5rem; }
+      .card p { margin: 0; color: var(--muted); }
+      h2 { font-size: 2rem; letter-spacing: -0.02em; }
+      form { display: flex; flex-direction: column; gap: 0.75rem; max-width: 360px; }
+      label { font-weight: 600; }
+      input {
+        padding: 0.75rem 1rem; font-size: 1rem; border-radius: 10px;
+        border: 1px solid var(--border); background: var(--bg); color: var(--fg);
+      }
+      button {
+        padding: 0.75rem 1rem; font-size: 1rem; font-weight: 600; cursor: pointer;
+        border: none; border-radius: 10px; background: var(--accent); color: var(--accent-fg);
+      }
+      #welcome { margin-top: 1rem; font-weight: 600; color: var(--accent); }
+      footer { padding: 3rem 0 5rem; color: var(--muted); border-top: 1px solid var(--border); }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="brand">Aurora<span>.</span></div>
+      <nav>
+        <a href="#features">Features</a>
+        <a href="#signup">Get started</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero" id="top">
+        <h1>Ship delightful products, faster.</h1>
+        <p>Aurora is a tiny demo app used to showcase narrated walkthrough videos.</p>
+      </section>
+
+      <section id="features">
+        <h2>Features</h2>
+        <div class="features">
+          <div class="card"><h3>Fast</h3><p>Instant loads and buttery interactions out of the box.</p></div>
+          <div class="card"><h3>Themed</h3><p>Respects your light or dark color-scheme preference.</p></div>
+          <div class="card"><h3>Simple</h3><p>A clean, focused interface with nothing in your way.</p></div>
+          <div class="card"><h3>Open</h3><p>Built on web standards you already know and trust.</p></div>
+        </div>
+      </section>
+
+      <section id="signup">
+        <h2>Create your account</h2>
+        <form
+          aria-label="Sign up"
+          onsubmit="event.preventDefault(); document.getElementById('welcome').hidden = false;"
+        >
+          <label for="email">Email</label>
+          <input id="email" name="email" type="email" placeholder="you@example.com" autocomplete="off" />
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" placeholder="••••••••" autocomplete="off" />
+          <button type="submit">Sign up</button>
+        </form>
+        <p id="welcome" hidden>🎉 Welcome aboard! Your account is ready.</p>
+      </section>
+    </main>
+
+    <footer>
+      <main>Aurora — demo content for the narrate walkthrough generator.</main>
+    </footer>
+  </body>
+</html>

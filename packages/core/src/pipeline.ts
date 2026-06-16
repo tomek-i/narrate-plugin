@@ -1,5 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import {
   concatWavs,
   ensureFfmpeg,
@@ -15,6 +16,12 @@ import type { Config, Durations, Scene } from "./types.js";
 export interface RenderOptions {
   cwd: string;
   onLog?: (msg: string) => void;
+}
+
+/** A `site` that isn't a URL is treated as a local file path → `file://` URL. */
+function resolveSite(site: string, cwd: string): string {
+  if (/^(https?|file):\/\//i.test(site)) return site;
+  return pathToFileURL(resolve(cwd, site)).href;
 }
 
 /**
@@ -56,7 +63,8 @@ export async function render(scene: Scene, config: Config, opts: RenderOptions):
   // 2. Record the scene continuously, each beat paced to its narration length.
   log("Recording walkthrough (headless)…");
   const recorder = new PlaywrightRecorder(outDir, config);
-  const { videoPath, leadInMs } = await recorder.record(scene, durations);
+  const sceneToRecord = { ...scene, site: resolveSite(scene.site, opts.cwd) };
+  const { videoPath, leadInMs } = await recorder.record(sceneToRecord, durations);
   if (!videoPath) throw new Error("Recording produced no video file.");
 
   // 3. Concatenate narration and overlay onto the trimmed video.

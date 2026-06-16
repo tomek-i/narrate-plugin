@@ -1,0 +1,44 @@
+{
+  "$schema": "../../../narrate.scene.schema.json",
+  "name": "narrate-demo",
+  "site": "demo/index.html",
+  "viewport": { "width": 1440, "height": 900 },
+  "theme": "dark",
+  "beats": [
+    {
+      "id": "intro",
+      "say": "Welcome to Aurora, a tiny demo application we'll use to show how a narrated walkthrough comes together.",
+      "do": [{ "action": "scrollTo", "y": 0, "over": 0 }, { "action": "wait", "ms": 1200 }]
+    },
+    {
+      "id": "features",
+      "say": "Scrolling down reveals the features section: a clean, responsive grid of cards, each describing something the product does.",
+      "do": [
+        { "action": "scrollIntoView", "selector": "#features", "over": 1800 },
+        { "action": "wait", "ms": 1500 }
+      ]
+    },
+    {
+      "id": "signup",
+      "say": "At the bottom there's a simple sign-up form. We'll type in an email address, enter a password, and submit to create the account.",
+      "do": [
+        { "action": "scrollIntoView", "selector": "#signup", "over": 1500 },
+        { "action": "type", "selector": "#email", "text": "demo@example.com", "delay": 70 },
+        { "action": "fill", "selector": "#password", "text": "sup3r-secret" },
+        { "action": "wait", "ms": 500 },
+        { "action": "click", "selector": "button[type=submit]" },
+        { "action": "waitFor", "selector": "#welcome", "state": "visible" }
+      ]
+    },
+    {
+      "id": "welcome",
+      "say": "And just like that, a friendly welcome message confirms the new account is ready to go.",
+      "do": [{ "action": "wait", "ms": 1800 }]
+    },
+    {
+      "id": "outro",
+      "say": "That's the whirlwind tour of Aurora. Thanks for watching this narrated walkthrough.",
+      "do": [{ "action": "scrollTo", "y": 0, "over": 900 }, { "action": "wait", "ms": 1000 }]
+    }
+  ]
+}

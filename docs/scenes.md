@@ -33,6 +33,14 @@ visual actions (`do`) shown while it plays.
 }
 ```
 
+## Site
+
+`site` is usually a running URL (`http://localhost:3000`). It can also be a
+**local file path** (e.g. `demo/index.html`) — anything that isn't an
+`http(s)://` or `file://` URL is resolved relative to the scene file and loaded
+as a `file://` page, so a self-contained demo needs no server. See the bundled
+example at `packages/plugin/examples/demo.scene.json`.
+
 ## Pacing
 
 Each beat is held on screen for **exactly its narration length**. Keep a beat's

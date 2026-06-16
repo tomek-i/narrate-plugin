@@ -3415,7 +3415,8 @@ var {
 // src/config.ts
 var import_dotenv = __toESM(require_main(), 1);
 import { existsSync, readFileSync } from "fs";
-import { resolve } from "path";
+import { dirname, resolve } from "path";
+import { pathToFileURL } from "url";
 
 // ../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/external.js
 var external_exports = {};
@@ -7576,7 +7577,11 @@ function loadConfig(cwd, configPath) {
 function loadScene(cwd, scenePath) {
   const p = resolve(cwd, scenePath);
   if (!existsSync(p)) throw new Error(`Scene file not found: ${p}`);
-  return SceneSchema.parse(JSON.parse(readFileSync(p, "utf8")));
+  const scene = SceneSchema.parse(JSON.parse(readFileSync(p, "utf8")));
+  if (!/^(https?|file):\/\//i.test(scene.site)) {
+    scene.site = pathToFileURL(resolve(dirname(p), scene.site)).href;
+  }
+  return scene;
 }
 function resolveApiKey(config) {
   const envName = config.tts.apiKeyEnv ?? KEY_ENV[config.tts.provider];
@@ -7593,6 +7598,7 @@ function resolveApiKey(config) {
 // src/pipeline.ts
 import { mkdirSync, writeFileSync as writeFileSync2 } from "fs";
 import { join as join3, resolve as resolve2 } from "path";
+import { pathToFileURL as pathToFileURL2 } from "url";
 
 // src/mux/ffmpeg.ts
 import { execFileSync } from "child_process";
@@ -7679,14 +7685,14 @@ import { join as join2 } from "path";
 // src/setup.ts
 import { execFileSync as execFileSync2 } from "child_process";
 import { existsSync as existsSync2 } from "fs";
-import { dirname, join } from "path";
+import { dirname as dirname2, join } from "path";
 import { fileURLToPath } from "url";
 var isWin = process.platform === "win32";
 function packageRoot() {
-  let dir = dirname(fileURLToPath(import.meta.url));
+  let dir = dirname2(fileURLToPath(import.meta.url));
   for (let i = 0; i < 8; i++) {
     if (existsSync2(join(dir, "package.json"))) return dir;
-    const parent = dirname(dir);
+    const parent = dirname2(dir);
     if (parent === dir) break;
     dir = parent;
   }
@@ -8050,6 +8056,10 @@ function makeProvider(config) {
 }
 
 // src/pipeline.ts
+function resolveSite(site, cwd) {
+  if (/^(https?|file):\/\//i.test(site)) return site;
+  return pathToFileURL2(resolve2(cwd, site)).href;
+}
 async function render(scene, config, opts) {
   const log = opts.onLog ?? (() => {
   });
@@ -8078,7 +8088,8 @@ async function render(scene, config, opts) {
   }
   log("Recording walkthrough (headless)\u2026");
   const recorder = new PlaywrightRecorder(outDir, config);
-  const { videoPath, leadInMs } = await recorder.record(scene, durations);
+  const sceneToRecord = { ...scene, site: resolveSite(scene.site, opts.cwd) };
+  const { videoPath, leadInMs } = await recorder.record(sceneToRecord, durations);
   if (!videoPath) throw new Error("Recording produced no video file.");
   log("Muxing narration onto video\u2026");
   const narration = join3(outDir, "narration.wav");
