@@ -40,6 +40,28 @@ test("SceneSchema applies defaults and requires at least one beat", () => {
   assert.throws(() => SceneSchema.parse({ site: "x", beats: [] }));
 });
 
+test("SceneSchema accepts form-interaction steps with defaults", () => {
+  const scene = SceneSchema.parse({
+    site: "http://localhost:3000",
+    beats: [
+      {
+        id: "signup",
+        say: "We sign up.",
+        do: [
+          { action: "fill", selector: "#email", text: "a@b.com" },
+          { action: "press", key: "Enter" },
+          { action: "waitFor", selector: ".dashboard" },
+        ],
+      },
+    ],
+  });
+  const steps = scene.beats[0].do;
+  assert.equal(steps[0].action, "fill");
+  assert.equal(steps[2].action, "waitFor");
+  // waitFor defaults state to "visible".
+  assert.equal(steps[2].action === "waitFor" && steps[2].state, "visible");
+});
+
 test("ConfigSchema defaults to gemini/Kore", () => {
   const cfg = ConfigSchema.parse({});
   assert.equal(cfg.tts.provider, "gemini");

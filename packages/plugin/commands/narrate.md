@@ -1,38 +1,64 @@
 ---
-description: Record a narrated walkthrough video of a running website.
-argument-hint: [what to demo / which site or scene]
+description: Record a narrated walkthrough video of this project's app from a plain-English prompt.
+argument-hint: [what to demo, e.g. "the signup flow with test@example.com"]
 ---
 
-The user wants a narrated walkthrough video. Their request: **$ARGUMENTS**
+The user wants a narrated walkthrough video of **this project's** app. Their
+request: **$ARGUMENTS**
 
-Produce it with the bundled `@narrate/core` engine following the
-`narrate-walkthrough` skill. Key facts for this plugin layout:
+You will investigate the repo, get the app running, script the walkthrough as a
+scene, and let the bundled `@narrate/core` engine record + narrate it. Follow the
+`narrate-walkthrough` skill for the scene format and the full step vocabulary.
 
-1. **One-time setup.** The engine needs Playwright + a Chromium browser, which
-   are installed next to the bundled CLI on first use. If
-   `${CLAUDE_PLUGIN_ROOT}/node_modules/playwright` does not exist, run:
-   ```bash
-   node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" setup
-   ```
-   Also confirm `ffmpeg` and `ffprobe` are on PATH (`ffmpeg -version`); if not,
-   tell the user to install them.
+Work through these phases. Think before each; don't blindly run commands.
 
-2. **Scene.** Find or write a scene JSON (see the skill + `scenes/portfolio.example.json`).
-   Tailor `site`, `viewport`, optional `theme`, and the ordered `beats`
-   (`say` + timed `do` steps) to the user's request and the site's real
-   selectors. The target site must be running and reachable at `site`.
+## 1. Preflight
+- The engine auto-provisions Playwright + Chromium on first render, so no manual
+  install is needed. The ONLY external dependency is **ffmpeg + ffprobe** —
+  verify with `ffmpeg -version`. If missing, tell the user how to install it and stop.
+- If `$ARGUMENTS` is empty or vague, ask what flow/feature to demo and for any
+  test credentials or data needed.
 
-3. **Render** with the bundled CLI (NOT a global `narrate` binary):
-   ```bash
-   node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" render --scene <scene.json>
-   # no API key / silent dry run:
-   node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" render --scene <scene.json> --provider mock
-   ```
-   A TTS API key is read from `NARRATE_<PROVIDER>_API_KEY` (in `.env.narrate`
-   or the environment). Use `--provider mock` if none is available.
+## 2. Investigate the project
+- Read `package.json` (and any README/Makefile) to find the dev/start script,
+  framework, and the **URL + port** the app serves on. Check for required env
+  (e.g. a `.env`), and whether a build or DB/seed step is needed first.
+- Identify the exact pages and UI involved in the requested flow. Find the **real
+  selectors** you'll drive — read the component source, or (if the Playwright MCP
+  is available) open the running page and snapshot it to discover selectors and
+  accessible names. Prefer robust selectors: `role=`, `text=`, `[name=...]`,
+  stable `id`s — avoid brittle deep CSS.
 
-4. **Report** the output path (`out/<scene-name>.mp4`) and offer to adjust voice,
-   narration, or pacing.
+## 3. Run the app
+- If it isn't already running, start the dev server **in the background** and wait
+  until the URL actually responds before continuing. Note the PID/handle so you
+  can stop it in phase 6.
 
-If `$ARGUMENTS` is empty, ask the user what site/feature to demo and whether the
-dev server is already running.
+## 4. Author the scene
+- Write `./.narrate/tmp/<slug>.scene.json`: `site` (the running URL), `viewport`,
+  optional `theme`, and ordered `beats`. Each beat = one `say` line + the timed
+  `do` steps shown while it's spoken.
+- Map the user's request into beats: an intro, the feature steps, an outro. Use
+  the actual data they gave (e.g. the email/password) — never invent real secrets,
+  and treat signup/email flows as test-only.
+- **Pacing rule:** each beat stays on screen for exactly its narration length, so
+  keep a beat's `do` steps shorter than its spoken line. If steps overrun, the
+  engine warns — split the beat or lengthen the narration.
+
+## 5. Render
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" render \
+  --scene ./.narrate/tmp/<slug>.scene.json --out ./.narrate/tmp
+```
+- A TTS key is read from `NARRATE_<PROVIDER>_API_KEY` (`.env.narrate` or env). If
+  none is available, add `--provider mock` and warn the user the audio is silent.
+- If the engine warns about overrun beats, adjust the scene and re-render.
+
+## 6. Deliver & clean up
+- Create `./docs/` if needed and copy the finished video there:
+  `./.narrate/tmp/<slug>.mp4` → `./docs/<slug>.mp4`.
+- Ensure the project's `.gitignore` contains `.narrate/`, then delete
+  `./.narrate/tmp` (it's all intermediates).
+- Stop the dev server you started.
+- Report the final path `./docs/<slug>.mp4` and offer to tweak voice, narration,
+  pacing, or specific steps.

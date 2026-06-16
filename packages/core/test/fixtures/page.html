@@ -12,6 +12,12 @@
   </head>
   <body>
     <section id="a">Hello</section>
-    <section id="b">World</section>
+    <section id="b">
+      <form id="signup" onsubmit="event.preventDefault(); document.getElementById('done').hidden = false;">
+        <input id="email" type="email" placeholder="email" />
+        <button type="submit">Sign up</button>
+      </form>
+      <p id="done" hidden>Welcome!</p>
+    </section>
   </body>
 </html>

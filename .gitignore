@@ -8,6 +8,7 @@ dist/
 
 # narrate runtime output & media
 out/
+.narrate/
 *.webm
 *.mp4
 *.mp3

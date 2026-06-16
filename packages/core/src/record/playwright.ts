@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import type { Browser, Page } from "playwright";
+import { installChromium } from "../setup.js";
 import type { Config, Durations, Scene, Step } from "../types.js";
 import type { RecordResult, Recorder } from "./recorder.js";
 
@@ -33,7 +34,16 @@ export class PlaywrightRecorder implements Recorder {
   async record(scene: Scene, durations: Durations): Promise<RecordResult> {
     const size = { width: scene.viewport.width, height: scene.viewport.height };
     const chromium = await loadChromium();
-    const browser: Browser = await chromium.launch();
+    let browser: Browser;
+    try {
+      browser = await chromium.launch();
+    } catch (err) {
+      // Package present but the browser binary is missing — fetch it and retry once.
+      if (/Executable doesn't exist|playwright install/i.test(String(err))) {
+        installChromium();
+        browser = await chromium.launch();
+      } else throw err;
+    }
     const context = await browser.newContext({
       viewport: size,
       recordVideo: { dir: join(this.outDir, "video"), size },
@@ -90,18 +100,94 @@ async function applyTheme(page: Page, theme: "light" | "dark" | "system"): Promi
   }, theme);
 }
 
+// Steps that may trigger a navigation; swallow networkidle timeouts on SPAs.
+async function settle(page: Page): Promise<void> {
+  await page.waitForLoadState("networkidle").catch(() => {});
+}
+
 async function runStep(page: Page, step: Step): Promise<void> {
   switch (step.action) {
+    // --- timing ---
     case "wait":
       await page.waitForTimeout(step.ms);
       return;
+    case "waitFor":
+      await page.waitForSelector(step.selector, { state: step.state });
+      return;
+    case "waitForUrl":
+      await page.waitForURL(step.url);
+      return;
+
+    // --- navigation ---
     case "navigate":
       await page.goto(step.url, { waitUntil: "networkidle" });
       return;
+    case "back":
+      await page.goBack().catch(() => {});
+      await settle(page);
+      return;
+    case "forward":
+      await page.goForward().catch(() => {});
+      await settle(page);
+      return;
+    case "reload":
+      await page.reload({ waitUntil: "networkidle" });
+      return;
+
+    // --- mouse ---
     case "click":
       await page.click(step.selector);
-      await page.waitForLoadState("networkidle").catch(() => {});
+      await settle(page);
       return;
+    case "dblclick":
+      await page.dblclick(step.selector);
+      await settle(page);
+      return;
+    case "hover":
+      await page.hover(step.selector);
+      return;
+    case "dragTo":
+      await page.dragAndDrop(step.from, step.to);
+      return;
+
+    // --- keyboard / forms ---
+    case "fill":
+      await page.fill(step.selector, step.text);
+      return;
+    case "type":
+      await page.locator(step.selector).pressSequentially(step.text, { delay: step.delay });
+      return;
+    case "clear":
+      await page.fill(step.selector, "");
+      return;
+    case "press":
+      if (step.selector) await page.press(step.selector, step.key);
+      else await page.keyboard.press(step.key);
+      await settle(page);
+      return;
+    case "selectOption":
+      await page.selectOption(
+        step.selector,
+        step.label !== undefined ? { label: step.label } : { value: step.value ?? "" },
+      );
+      return;
+    case "check":
+      await page.check(step.selector);
+      return;
+    case "uncheck":
+      await page.uncheck(step.selector);
+      return;
+    case "focus":
+      await page.focus(step.selector);
+      return;
+    case "blur":
+      await page.locator(step.selector).blur();
+      return;
+    case "uploadFile":
+      await page.setInputFiles(step.selector, step.files);
+      return;
+
+    // --- scrolling ---
     case "scrollTo":
       await smoothScrollTo(page, step.y, step.over);
       return;
@@ -116,6 +202,18 @@ async function runStep(page: Page, step: Step): Promise<void> {
       await smoothScrollTo(page, Math.max(0, target), step.over);
       return;
     }
+    case "scrollIntoView": {
+      const target = await page.evaluate((sel) => {
+        const el = document.querySelector(sel);
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return r.top + window.scrollY - (window.innerHeight - r.height) / 2;
+      }, step.selector);
+      if (target !== null) await smoothScrollTo(page, Math.max(0, target), step.over);
+      return;
+    }
+
+    // --- convenience / escape hatch ---
     case "menu":
       await page.click(step.trigger);
       await page.waitForTimeout(450);

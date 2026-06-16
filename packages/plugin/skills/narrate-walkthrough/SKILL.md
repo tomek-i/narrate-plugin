@@ -1,57 +1,122 @@
 ---
 name: narrate-walkthrough
-description: Generate a narrated walkthrough video of a running website. Use when the user asks to record, narrate, or produce a video tour / screencast of a web app, demo a site's features on video, or create a walkthrough with voiceover.
+description: Generate a narrated walkthrough video of a running web app. Use when the user asks to record, narrate, or produce a video tour / screencast / demo of a website or feature, or create a walkthrough with voiceover.
 ---
 
 # Narrate a walkthrough video
 
-Produce a narrated video tour of a website using the `@narrate/core` engine: it
+Produce a narrated video tour using the bundled `@narrate/core` engine: it
 generates speech with a TTS provider, records the browser continuously with a
-bundled headless Playwright (so audio sync is automatic — no manual syncing),
-and muxes the narration onto the video with ffmpeg.
+headless Playwright (each beat held on screen for exactly its narration length,
+so audio sync is automatic), and muxes narration onto the video with ffmpeg.
 
 ## The CLI
 
-The engine ships as a bundled CLI inside this plugin. Always invoke it as:
+The engine is bundled inside this plugin. Always invoke it as:
 
 ```bash
 node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" <command> …
 ```
 
-(During development in the source monorepo you can instead use `pnpm narrate …`.)
+(In the source monorepo you can instead use `pnpm narrate …`.)
 
-## Prerequisites (check, don't assume)
+Commands: `render --scene <file> [--out <dir>] [--provider <p>] [--voice <v>]`
+and `setup` (force-install Playwright + Chromium; normally automatic on first render).
 
-1. **One-time setup.** Playwright + a Chromium browser are installed next to the
-   CLI on first use. If `${CLAUDE_PLUGIN_ROOT}/node_modules/playwright` is absent,
-   run `node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" setup` first.
-2. **ffmpeg + ffprobe** on PATH (`ffmpeg -version`). If missing, tell the user to install it.
-3. **The target site is running** and reachable at the scene's `site` URL (e.g. a dev server). If not, ask the user to start it (or offer to).
-4. **An API key** for the configured TTS provider, namespaced as `NARRATE_<PROVIDER>_API_KEY` in `.env.narrate` (gitignored) or the environment. For a no-key dry run, use `--provider mock`.
+## Prerequisites
 
-## Steps
+- **ffmpeg + ffprobe** on PATH (`ffmpeg -version`) — the only manual dependency.
+  Playwright + Chromium are auto-provisioned on the first render.
+- The **target app running** and reachable at the scene's `site` URL.
+- A **TTS API key** as `NARRATE_<PROVIDER>_API_KEY` (in `.env.narrate` or the env).
+  No key? Use `--provider mock` for a silent dry run.
 
-1. **Locate or create a scene file.** A scene is JSON describing the tour: `site`, `viewport`, optional `theme`, and ordered `beats` (each with `say` text + timed `do` steps). Start from `scenes/portfolio.example.json`. Tailor the narration and steps to the site's actual features and selectors (inspect the DOM if unsure).
-2. **Confirm config.** `narrate.config.json` sets the provider/voice/output. Defaults to Gemini + "Kore". To switch voice or provider, edit the config or pass `--voice` / `--provider`.
-3. **Run the render:**
+## Workflow (from a plain-English request)
+
+1. **Investigate** the repo: `package.json` dev/start script, framework, URL/port,
+   required env/seed. Identify the pages + **real selectors** for the requested
+   flow (read component source, or use the Playwright MCP to snapshot the live
+   page). Prefer robust selectors: `role=`, `text=`, `[name=...]`, stable ids.
+2. **Run the app** if needed — start the dev server in the background, wait until
+   the URL responds, and remember to stop it afterward.
+3. **Author a scene** at `./.narrate/tmp/<slug>.scene.json` (format below). Use any
+   credentials/data the user gave; treat signup/email flows as test-only.
+4. **Render** to the temp dir:
    ```bash
-   node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" render --scene scenes/portfolio.example.json
-   # dry run with no API key / no audio:
-   node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" render --scene scenes/portfolio.example.json --provider mock
+   node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" render \
+     --scene ./.narrate/tmp/<slug>.scene.json --out ./.narrate/tmp
    ```
-4. **Report the output path** (`out/<scene-name>.mp4`) and offer to tweak voice, narration, or pacing.
+5. **Deliver**: copy `./.narrate/tmp/<slug>.mp4` → `./docs/<slug>.mp4`, ensure
+   `.narrate/` is in the project `.gitignore`, delete `./.narrate/tmp`, stop the
+   dev server, and report the final path.
+
+## Scene format
+
+```jsonc
+{
+  "name": "signup",                       // output file = <name>.mp4
+  "site": "http://localhost:3000",
+  "viewport": { "width": 1440, "height": 900 },
+  "theme": "dark",                         // optional: light | dark | system
+  "beats": [
+    {
+      "id": "intro",
+      "say": "Spoken narration for this beat.",
+      "voice": "Kore",                     // optional per-beat voice override
+      "do": [ { "action": "wait", "ms": 800 } ]
+    }
+  ]
+}
+```
+
+Add `"$schema": "../narrate.scene.schema.json"` for editor autocomplete when a
+schema file is nearby (the engine ignores unknown keys).
+
+## Step vocabulary (the `do` array)
+
+Selectors are real Playwright selectors. Steps run in order within a beat.
+
+**Timing**
+- `{ "action": "wait", "ms": 1000 }`
+- `{ "action": "waitFor", "selector": ".x", "state": "visible" }` — state: `attached|detached|visible|hidden`
+- `{ "action": "waitForUrl", "url": "**/dashboard" }`
+
+**Navigation**
+- `{ "action": "navigate", "url": "http://localhost:3000/path" }`
+- `{ "action": "back" }` · `{ "action": "forward" }` · `{ "action": "reload" }`
+
+**Mouse**
+- `{ "action": "click", "selector": "..." }`
+- `{ "action": "dblclick", "selector": "..." }`
+- `{ "action": "hover", "selector": "..." }`
+- `{ "action": "dragTo", "from": "...", "to": "..." }`
+
+**Keyboard / forms**
+- `{ "action": "fill", "selector": "#email", "text": "a@b.com" }` — set value instantly
+- `{ "action": "type", "selector": "#email", "text": "a@b.com", "delay": 60 }` — key-by-key (lifelike)
+- `{ "action": "clear", "selector": "#email" }`
+- `{ "action": "press", "key": "Enter", "selector": "#email" }` — `selector` optional; supports combos like `Control+A`
+- `{ "action": "selectOption", "selector": "select", "label": "Blue" }` — or `"value": "..."`
+- `{ "action": "check", "selector": "#agree" }` · `{ "action": "uncheck", "selector": "#agree" }`
+- `{ "action": "focus", "selector": "..." }` · `{ "action": "blur", "selector": "..." }`
+- `{ "action": "uploadFile", "selector": "input[type=file]", "files": ["./a.png"] }`
+
+**Scrolling** (smoothly animated over `over` ms)
+- `{ "action": "scrollTo", "y": 600, "over": 2000 }`
+- `{ "action": "scrollThrough", "selector": "article", "over": 7000 }` — selector optional (whole page)
+- `{ "action": "scrollIntoView", "selector": "#section", "over": 800 }`
+
+**Convenience / escape hatch**
+- `{ "action": "menu", "trigger": "role=button[name=\"Toggle theme\"]", "item": "Light" }` — click trigger, then a `menuitem` by text
+- `{ "action": "eval", "fn": "document.body.classList.add('x')" }` — arbitrary in-page async JS; last resort
 
 ## Notes
 
-- Each beat stays on screen for exactly its narration length, so beats whose `do`
-  steps run longer than the spoken line will log a warning — shorten the steps or
-  lengthen the narration.
-- Selectors in `do` steps are real Playwright selectors. `menu` clicks a trigger
-  then a menu item by text (handy for theme dropdowns). `eval` runs arbitrary
-  page JS as an escape hatch.
-- To change TTS engine to ElevenLabs: set `tts.provider: "elevenlabs"`, put a
-  voice id in `tts.voice`, and set `NARRATE_ELEVENLABS_API_KEY`.
-- A scene-level `theme` (`light`/`dark`/`system`) is applied `next-themes`-style:
-  it sets `localStorage.theme`, toggles the `light`/`dark` class on `<html>`, and
-  sets `color-scheme`. If the target app themes differently, drive the toggle with
-  a `menu`/`click` step (as the example does) or an `eval` step instead.
+- **Pacing:** a beat is held for exactly its narration length. If its `do` steps
+  run longer, the engine warns — split the beat or lengthen the narration.
+- **Config:** `narrate.config.json` sets provider/voice/output (default Gemini +
+  "Kore"). Override per-run with `--provider` / `--voice`. For ElevenLabs: set
+  `tts.provider: "elevenlabs"`, a voice id in `tts.voice`, and `NARRATE_ELEVENLABS_API_KEY`.
+- **Theme:** scene-level `theme` is applied `next-themes`-style (sets
+  `localStorage.theme`, toggles `light`/`dark` on `<html>`, sets `color-scheme`).
+  If the app themes differently, drive its toggle with a `menu`/`click`/`eval` step.

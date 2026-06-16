@@ -1,7 +1,14 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { concatWavs, muxNarration, normalizeToWav, probeDuration } from "./mux/ffmpeg.js";
+import {
+  concatWavs,
+  ensureFfmpeg,
+  muxNarration,
+  normalizeToWav,
+  probeDuration,
+} from "./mux/ffmpeg.js";
 import { PlaywrightRecorder } from "./record/playwright.js";
+import { hasPlaywright, installChromium, installPlaywrightPackage } from "./setup.js";
 import { makeProvider } from "./tts/index.js";
 import type { Config, Durations, Scene } from "./types.js";
 
@@ -16,6 +23,16 @@ export interface RenderOptions {
  */
 export async function render(scene: Scene, config: Config, opts: RenderOptions): Promise<string> {
   const log = opts.onLog ?? (() => {});
+
+  // Preflight: ffmpeg must be on PATH; Playwright + Chromium are auto-provisioned
+  // on first run so the only manual dependency is ffmpeg.
+  ensureFfmpeg();
+  if (!(await hasPlaywright())) {
+    log("First run: provisioning the headless browser (one-time)…");
+    installPlaywrightPackage(log);
+    installChromium(log);
+  }
+
   const outDir = resolve(opts.cwd, config.output.dir);
   const audioDir = join(outDir, "audio");
   mkdirSync(audioDir, { recursive: true });

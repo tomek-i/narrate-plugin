@@ -3,6 +3,29 @@ import { writeFileSync } from "node:fs";
 
 const fwd = (p: string) => p.replace(/\\/g, "/");
 
+/** Per-OS hint for installing ffmpeg, shown when the preflight check fails. */
+function ffmpegInstallHint(): string {
+  switch (process.platform) {
+    case "win32":
+      return "Install it with `winget install Gyan.FFmpeg` (or `choco install ffmpeg`).";
+    case "darwin":
+      return "Install it with `brew install ffmpeg`.";
+    default:
+      return "Install it with your package manager, e.g. `sudo apt install ffmpeg`.";
+  }
+}
+
+/** Verify ffmpeg + ffprobe are on PATH before a render; throw a friendly error if not. */
+export function ensureFfmpeg(): void {
+  for (const bin of ["ffmpeg", "ffprobe"]) {
+    try {
+      execFileSync(bin, ["-version"], { stdio: "ignore" });
+    } catch {
+      throw new Error(`"${bin}" was not found on your PATH. ${ffmpegInstallHint()}`);
+    }
+  }
+}
+
 /** Duration of a media file in seconds (requires ffprobe on PATH). */
 export function probeDuration(file: string): number {
   const out = execFileSync("ffprobe", [

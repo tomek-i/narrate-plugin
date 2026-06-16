@@ -7460,18 +7460,67 @@ var NEVER = INVALID;
 
 // src/types.ts
 var StepSchema = external_exports.discriminatedUnion("action", [
+  // --- timing ---
   external_exports.object({ action: external_exports.literal("wait"), ms: external_exports.number().positive() }),
+  external_exports.object({
+    action: external_exports.literal("waitFor"),
+    selector: external_exports.string(),
+    state: external_exports.enum(["attached", "detached", "visible", "hidden"]).default("visible")
+  }),
+  external_exports.object({ action: external_exports.literal("waitForUrl"), url: external_exports.string() }),
+  // string or glob
+  // --- navigation ---
   external_exports.object({ action: external_exports.literal("navigate"), url: external_exports.string() }),
+  external_exports.object({ action: external_exports.literal("back") }),
+  external_exports.object({ action: external_exports.literal("forward") }),
+  external_exports.object({ action: external_exports.literal("reload") }),
+  // --- mouse ---
   external_exports.object({ action: external_exports.literal("click"), selector: external_exports.string() }),
+  external_exports.object({ action: external_exports.literal("dblclick"), selector: external_exports.string() }),
+  external_exports.object({ action: external_exports.literal("hover"), selector: external_exports.string() }),
+  external_exports.object({ action: external_exports.literal("dragTo"), from: external_exports.string(), to: external_exports.string() }),
+  // --- keyboard / forms ---
+  // fill = set value instantly; type = key-by-key (more lifelike for demos).
+  external_exports.object({ action: external_exports.literal("fill"), selector: external_exports.string(), text: external_exports.string() }),
+  external_exports.object({
+    action: external_exports.literal("type"),
+    selector: external_exports.string(),
+    text: external_exports.string(),
+    delay: external_exports.number().min(0).default(60)
+  }),
+  external_exports.object({ action: external_exports.literal("clear"), selector: external_exports.string() }),
+  external_exports.object({ action: external_exports.literal("press"), key: external_exports.string(), selector: external_exports.string().optional() }),
+  external_exports.object({
+    action: external_exports.literal("selectOption"),
+    selector: external_exports.string(),
+    value: external_exports.string().optional(),
+    label: external_exports.string().optional()
+  }),
+  external_exports.object({ action: external_exports.literal("check"), selector: external_exports.string() }),
+  external_exports.object({ action: external_exports.literal("uncheck"), selector: external_exports.string() }),
+  external_exports.object({ action: external_exports.literal("focus"), selector: external_exports.string() }),
+  external_exports.object({ action: external_exports.literal("blur"), selector: external_exports.string() }),
+  external_exports.object({
+    action: external_exports.literal("uploadFile"),
+    selector: external_exports.string(),
+    files: external_exports.array(external_exports.string()).min(1)
+  }),
+  // --- scrolling (smoothly animated over `over` ms) ---
   external_exports.object({ action: external_exports.literal("scrollTo"), y: external_exports.number(), over: external_exports.number().min(0).default(0) }),
   external_exports.object({
     action: external_exports.literal("scrollThrough"),
     selector: external_exports.string().optional(),
     over: external_exports.number().positive().default(4e3)
   }),
-  // Click a trigger, then click a menu item by visible text (e.g. a theme dropdown).
+  external_exports.object({
+    action: external_exports.literal("scrollIntoView"),
+    selector: external_exports.string(),
+    over: external_exports.number().min(0).default(800)
+  }),
+  // --- convenience / escape hatch ---
+  // Click a trigger, then a menu item by visible text (e.g. a theme dropdown).
   external_exports.object({ action: external_exports.literal("menu"), trigger: external_exports.string(), item: external_exports.string() }),
-  // Escape hatch: run arbitrary JS in the page (body of an async function).
+  // Run arbitrary JS in the page (body of an async function).
   external_exports.object({ action: external_exports.literal("eval"), fn: external_exports.string() })
 ]);
 var BeatSchema = external_exports.object({
@@ -7543,12 +7592,31 @@ function resolveApiKey(config) {
 
 // src/pipeline.ts
 import { mkdirSync, writeFileSync as writeFileSync2 } from "fs";
-import { join as join2, resolve as resolve2 } from "path";
+import { join as join3, resolve as resolve2 } from "path";
 
 // src/mux/ffmpeg.ts
 import { execFileSync } from "child_process";
 import { writeFileSync } from "fs";
 var fwd = (p) => p.replace(/\\/g, "/");
+function ffmpegInstallHint() {
+  switch (process.platform) {
+    case "win32":
+      return "Install it with `winget install Gyan.FFmpeg` (or `choco install ffmpeg`).";
+    case "darwin":
+      return "Install it with `brew install ffmpeg`.";
+    default:
+      return "Install it with your package manager, e.g. `sudo apt install ffmpeg`.";
+  }
+}
+function ensureFfmpeg() {
+  for (const bin of ["ffmpeg", "ffprobe"]) {
+    try {
+      execFileSync(bin, ["-version"], { stdio: "ignore" });
+    } catch {
+      throw new Error(`"${bin}" was not found on your PATH. ${ffmpegInstallHint()}`);
+    }
+  }
+}
 function probeDuration(file) {
   const out = execFileSync("ffprobe", [
     "-v",
@@ -7606,7 +7674,55 @@ function muxNarration(opts) {
 }
 
 // src/record/playwright.ts
-import { join } from "path";
+import { join as join2 } from "path";
+
+// src/setup.ts
+import { execFileSync as execFileSync2 } from "child_process";
+import { existsSync as existsSync2 } from "fs";
+import { dirname, join } from "path";
+import { fileURLToPath } from "url";
+var isWin = process.platform === "win32";
+function packageRoot() {
+  let dir = dirname(fileURLToPath(import.meta.url));
+  for (let i = 0; i < 8; i++) {
+    if (existsSync2(join(dir, "package.json"))) return dir;
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return dir;
+}
+async function hasPlaywright() {
+  try {
+    await import("playwright");
+    return true;
+  } catch {
+    return false;
+  }
+}
+function installPlaywrightPackage(log = console.log) {
+  const root = packageRoot();
+  log(`Installing Playwright into ${root}\u2026`);
+  execFileSync2(isWin ? "npm.cmd" : "npm", ["install", "--omit=dev"], {
+    cwd: root,
+    stdio: "inherit"
+  });
+}
+function installChromium(log = console.log) {
+  log("Installing the Chromium browser\u2026");
+  execFileSync2(isWin ? "npx.cmd" : "npx", ["playwright", "install", "chromium"], {
+    cwd: packageRoot(),
+    stdio: "inherit"
+  });
+}
+async function setup(log = console.log) {
+  if (await hasPlaywright()) log("Playwright already installed.");
+  else installPlaywrightPackage(log);
+  installChromium(log);
+  log("Setup complete.");
+}
+
+// src/record/playwright.ts
 async function loadChromium() {
   try {
     const pw = await import("playwright");
@@ -7627,10 +7743,18 @@ var PlaywrightRecorder = class {
   async record(scene, durations) {
     const size = { width: scene.viewport.width, height: scene.viewport.height };
     const chromium = await loadChromium();
-    const browser = await chromium.launch();
+    let browser;
+    try {
+      browser = await chromium.launch();
+    } catch (err) {
+      if (/Executable doesn't exist|playwright install/i.test(String(err))) {
+        installChromium();
+        browser = await chromium.launch();
+      } else throw err;
+    }
     const context = await browser.newContext({
       viewport: size,
-      recordVideo: { dir: join(this.outDir, "video"), size },
+      recordVideo: { dir: join2(this.outDir, "video"), size },
       deviceScaleFactor: 1
     });
     const contextStart = Date.now();
@@ -7676,19 +7800,91 @@ async function applyTheme(page, theme) {
     el.style.colorScheme = t;
   }, theme);
 }
+async function settle(page) {
+  await page.waitForLoadState("networkidle").catch(() => {
+  });
+}
 async function runStep(page, step) {
   switch (step.action) {
+    // --- timing ---
     case "wait":
       await page.waitForTimeout(step.ms);
       return;
+    case "waitFor":
+      await page.waitForSelector(step.selector, { state: step.state });
+      return;
+    case "waitForUrl":
+      await page.waitForURL(step.url);
+      return;
+    // --- navigation ---
     case "navigate":
       await page.goto(step.url, { waitUntil: "networkidle" });
       return;
+    case "back":
+      await page.goBack().catch(() => {
+      });
+      await settle(page);
+      return;
+    case "forward":
+      await page.goForward().catch(() => {
+      });
+      await settle(page);
+      return;
+    case "reload":
+      await page.reload({ waitUntil: "networkidle" });
+      return;
+    // --- mouse ---
     case "click":
       await page.click(step.selector);
-      await page.waitForLoadState("networkidle").catch(() => {
-      });
+      await settle(page);
       return;
+    case "dblclick":
+      await page.dblclick(step.selector);
+      await settle(page);
+      return;
+    case "hover":
+      await page.hover(step.selector);
+      return;
+    case "dragTo":
+      await page.dragAndDrop(step.from, step.to);
+      return;
+    // --- keyboard / forms ---
+    case "fill":
+      await page.fill(step.selector, step.text);
+      return;
+    case "type":
+      await page.locator(step.selector).pressSequentially(step.text, { delay: step.delay });
+      return;
+    case "clear":
+      await page.fill(step.selector, "");
+      return;
+    case "press":
+      if (step.selector) await page.press(step.selector, step.key);
+      else await page.keyboard.press(step.key);
+      await settle(page);
+      return;
+    case "selectOption":
+      await page.selectOption(
+        step.selector,
+        step.label !== void 0 ? { label: step.label } : { value: step.value ?? "" }
+      );
+      return;
+    case "check":
+      await page.check(step.selector);
+      return;
+    case "uncheck":
+      await page.uncheck(step.selector);
+      return;
+    case "focus":
+      await page.focus(step.selector);
+      return;
+    case "blur":
+      await page.locator(step.selector).blur();
+      return;
+    case "uploadFile":
+      await page.setInputFiles(step.selector, step.files);
+      return;
+    // --- scrolling ---
     case "scrollTo":
       await smoothScrollTo(page, step.y, step.over);
       return;
@@ -7703,6 +7899,17 @@ async function runStep(page, step) {
       await smoothScrollTo(page, Math.max(0, target), step.over);
       return;
     }
+    case "scrollIntoView": {
+      const target = await page.evaluate((sel) => {
+        const el = document.querySelector(sel);
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return r.top + window.scrollY - (window.innerHeight - r.height) / 2;
+      }, step.selector);
+      if (target !== null) await smoothScrollTo(page, Math.max(0, target), step.over);
+      return;
+    }
+    // --- convenience / escape hatch ---
     case "menu":
       await page.click(step.trigger);
       await page.waitForTimeout(450);
@@ -7851,8 +8058,14 @@ function makeProvider(config) {
 async function render(scene, config, opts) {
   const log = opts.onLog ?? (() => {
   });
+  ensureFfmpeg();
+  if (!await hasPlaywright()) {
+    log("First run: provisioning the headless browser (one-time)\u2026");
+    installPlaywrightPackage(log);
+    installChromium(log);
+  }
   const outDir = resolve2(opts.cwd, config.output.dir);
-  const audioDir = join2(outDir, "audio");
+  const audioDir = join3(outDir, "audio");
   mkdirSync(audioDir, { recursive: true });
   const provider = makeProvider(config);
   log(`Generating narration with "${provider.name}" (voice: ${config.tts.voice})\u2026`);
@@ -7860,9 +8073,9 @@ async function render(scene, config, opts) {
   const wavs = [];
   for (const beat of scene.beats) {
     const res = await provider.synth(beat.say, { voice: beat.voice });
-    const rawPath = join2(audioDir, `${beat.id}.${res.ext}`);
+    const rawPath = join3(audioDir, `${beat.id}.${res.ext}`);
     writeFileSync2(rawPath, res.audio);
-    const wavPath = join2(audioDir, `${beat.id}.norm.wav`);
+    const wavPath = join3(audioDir, `${beat.id}.norm.wav`);
     normalizeToWav(rawPath, wavPath);
     durations[beat.id] = probeDuration(wavPath);
     wavs.push(wavPath);
@@ -7873,9 +8086,9 @@ async function render(scene, config, opts) {
   const { videoPath, leadInMs } = await recorder.record(scene, durations);
   if (!videoPath) throw new Error("Recording produced no video file.");
   log("Muxing narration onto video\u2026");
-  const narration = join2(outDir, "narration.wav");
-  concatWavs(wavs, narration, join2(outDir, "audio.txt"));
-  const finalOut = join2(outDir, `${scene.name}.${config.output.format}`);
+  const narration = join3(outDir, "narration.wav");
+  concatWavs(wavs, narration, join3(outDir, "audio.txt"));
+  const finalOut = join3(outDir, `${scene.name}.${config.output.format}`);
   muxNarration({
     video: videoPath,
     audio: narration,
@@ -7887,53 +8100,16 @@ async function render(scene, config, opts) {
   return finalOut;
 }
 
-// src/setup.ts
-import { execFileSync as execFileSync2 } from "child_process";
-import { existsSync as existsSync2 } from "fs";
-import { dirname, join as join3 } from "path";
-import { fileURLToPath } from "url";
-function packageRoot() {
-  let dir = dirname(fileURLToPath(import.meta.url));
-  for (let i = 0; i < 8; i++) {
-    if (existsSync2(join3(dir, "package.json"))) return dir;
-    const parent = dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return dir;
-}
-async function hasPlaywright() {
-  try {
-    await import("playwright");
-    return true;
-  } catch {
-    return false;
-  }
-}
-async function setup(log = console.log) {
-  const root = packageRoot();
-  const npm = process.platform === "win32" ? "npm.cmd" : "npm";
-  if (await hasPlaywright()) {
-    log("Playwright already installed.");
-  } else {
-    log(`Installing Playwright into ${root}\u2026`);
-    execFileSync2(npm, ["install", "--omit=dev"], { cwd: root, stdio: "inherit" });
-  }
-  log("Installing the Chromium browser\u2026");
-  const npx = process.platform === "win32" ? "npx.cmd" : "npx";
-  execFileSync2(npx, ["playwright", "install", "chromium"], { cwd: root, stdio: "inherit" });
-  log("Setup complete.");
-}
-
 // src/cli.ts
 var program2 = new Command();
 program2.name("narrate").description("Generate a narrated walkthrough video of a website.").version("0.1.0");
-program2.command("render").description("TTS \u2192 record \u2192 mux into one narrated video.").requiredOption("-s, --scene <file>", "scene JSON file").option("-c, --config <file>", "config file (default: narrate.config.json)").option("--provider <name>", "override TTS provider (gemini|elevenlabs|mock)").option("--voice <name>", "override voice").action(async (o) => {
+program2.command("render").description("TTS \u2192 record \u2192 mux into one narrated video.").requiredOption("-s, --scene <file>", "scene JSON file").option("-c, --config <file>", "config file (default: narrate.config.json)").option("-o, --out <dir>", "output directory (overrides config output.dir)").option("--provider <name>", "override TTS provider (gemini|elevenlabs|mock)").option("--voice <name>", "override voice").action(async (o) => {
   const cwd = process.cwd();
   loadEnv(cwd);
   const config = loadConfig(cwd, o.config);
   if (o.provider) config.tts.provider = o.provider;
   if (o.voice) config.tts.voice = o.voice;
+  if (o.out) config.output.dir = o.out;
   const scene = loadScene(cwd, o.scene);
   const out = await render(scene, config, { cwd, onLog: (m) => console.log(m) });
   console.log(`

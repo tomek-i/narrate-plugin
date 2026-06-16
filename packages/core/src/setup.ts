@@ -3,6 +3,8 @@ import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+const isWin = process.platform === "win32";
+
 /** Walk up from the running module to the nearest dir containing package.json. */
 function packageRoot(): string {
   let dir = dirname(fileURLToPath(import.meta.url));
@@ -15,7 +17,7 @@ function packageRoot(): string {
   return dir;
 }
 
-/** True if `playwright` can be resolved from where the CLI is running. */
+/** True if the `playwright` package can be resolved from where the CLI runs. */
 export async function hasPlaywright(): Promise<boolean> {
   try {
     await import("playwright");
@@ -25,23 +27,32 @@ export async function hasPlaywright(): Promise<boolean> {
   }
 }
 
+/** `npm install` the Playwright package next to the CLI (no-op if already present). */
+export function installPlaywrightPackage(log: (msg: string) => void = console.log): void {
+  const root = packageRoot();
+  log(`Installing Playwright into ${root}…`);
+  execFileSync(isWin ? "npm.cmd" : "npm", ["install", "--omit=dev"], {
+    cwd: root,
+    stdio: "inherit",
+  });
+}
+
+/** Download the Chromium browser binary (idempotent; fast if already installed). */
+export function installChromium(log: (msg: string) => void = console.log): void {
+  log("Installing the Chromium browser…");
+  execFileSync(isWin ? "npx.cmd" : "npx", ["playwright", "install", "chromium"], {
+    cwd: packageRoot(),
+    stdio: "inherit",
+  });
+}
+
 /**
- * Install Playwright + the Chromium browser next to the CLI. Run once after a
- * bare plugin install (the chromium binary can't be bundled into the CLI).
+ * Provision everything Playwright needs (package + Chromium). Run once after a
+ * bare plugin install — the Chromium binary can't be bundled into the CLI.
  */
 export async function setup(log: (msg: string) => void = console.log): Promise<void> {
-  const root = packageRoot();
-  const npm = process.platform === "win32" ? "npm.cmd" : "npm";
-
-  if (await hasPlaywright()) {
-    log("Playwright already installed.");
-  } else {
-    log(`Installing Playwright into ${root}…`);
-    execFileSync(npm, ["install", "--omit=dev"], { cwd: root, stdio: "inherit" });
-  }
-
-  log("Installing the Chromium browser…");
-  const npx = process.platform === "win32" ? "npx.cmd" : "npx";
-  execFileSync(npx, ["playwright", "install", "chromium"], { cwd: root, stdio: "inherit" });
+  if (await hasPlaywright()) log("Playwright already installed.");
+  else installPlaywrightPackage(log);
+  installChromium(log);
   log("Setup complete.");
 }
