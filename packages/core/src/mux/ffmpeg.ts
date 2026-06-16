@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 
 const fwd = (p: string) => p.replace(/\\/g, "/");
@@ -80,7 +80,7 @@ export function muxNarration(opts: {
   fps: number;
   format: "mp4" | "webm";
   output: string;
-}): void {
+}): { command: string; stderr: string } {
   const { video, audio, leadInSec, fps, format, output } = opts;
   const vcodec =
     format === "webm"
@@ -91,31 +91,43 @@ export function muxNarration(opts: {
     `[0:v]trim=start=${leadInSec.toFixed(3)},setpts=PTS-STARTPTS,fps=${fps},format=yuv420p[v]`,
     "[1:a]aresample=async=1:first_pts=0[a]",
   ].join(";");
-  execFileSync(
-    "ffmpeg",
-    [
-      "-y",
-      "-i",
-      video,
-      "-i",
-      audio,
-      "-filter_complex",
-      filter,
-      "-map",
-      "[v]",
-      "-map",
-      "[a]",
-      "-c:v",
-      ...vcodec,
-      "-pix_fmt",
-      "yuv420p",
-      "-c:a",
-      ...acodec,
-      "-shortest",
-      output,
-    ],
-    { stdio: "inherit" },
-  );
+  const args = [
+    "-y",
+    "-i",
+    video,
+    "-i",
+    audio,
+    "-filter_complex",
+    filter,
+    "-map",
+    "[v]",
+    "-map",
+    "[a]",
+    "-c:v",
+    ...vcodec,
+    "-pix_fmt",
+    "yuv420p",
+    "-c:a",
+    ...acodec,
+    "-shortest",
+    output,
+  ];
+  const command = `ffmpeg ${args.map((a) => (/[\s;]/.test(a) ? `"${a}"` : a)).join(" ")}`;
+  const r = spawnSync("ffmpeg", args, { encoding: "utf8" });
+  if (r.status !== 0) {
+    const tail = (r.stderr ?? "").split("\n").slice(-25).join("\n");
+    throw new Error(`ffmpeg mux failed (exit ${r.status}):\n${tail}`);
+  }
+  return { command, stderr: r.stderr ?? "" };
+}
+
+/** Mean volume of a file's audio in dB (e.g. "-23.3 dB"), or null if undetectable. */
+export function meanVolume(file: string): string | null {
+  const r = spawnSync("ffmpeg", ["-i", file, "-af", "volumedetect", "-f", "null", "-"], {
+    encoding: "utf8",
+  });
+  const m = /mean_volume:\s*(\S+ dB)/.exec(r.stderr ?? "");
+  return m ? m[1] : null;
 }
 
 /** True if the file has at least one audio stream (post-mux sanity check). */

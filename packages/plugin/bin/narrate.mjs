@@ -7602,12 +7602,12 @@ function resolveApiKey(config) {
 }
 
 // src/pipeline.ts
-import { mkdirSync } from "fs";
+import { mkdirSync, writeFileSync as writeFileSync3 } from "fs";
 import { join as join4, resolve as resolve2 } from "path";
 import { pathToFileURL as pathToFileURL2 } from "url";
 
 // src/mux/ffmpeg.ts
-import { execFileSync } from "child_process";
+import { execFileSync, spawnSync } from "child_process";
 import { writeFileSync } from "fs";
 var fwd = (p) => p.replace(/\\/g, "/");
 function ffmpegInstallHint() {
@@ -7663,31 +7663,42 @@ function muxNarration(opts) {
     `[0:v]trim=start=${leadInSec.toFixed(3)},setpts=PTS-STARTPTS,fps=${fps},format=yuv420p[v]`,
     "[1:a]aresample=async=1:first_pts=0[a]"
   ].join(";");
-  execFileSync(
-    "ffmpeg",
-    [
-      "-y",
-      "-i",
-      video,
-      "-i",
-      audio,
-      "-filter_complex",
-      filter,
-      "-map",
-      "[v]",
-      "-map",
-      "[a]",
-      "-c:v",
-      ...vcodec,
-      "-pix_fmt",
-      "yuv420p",
-      "-c:a",
-      ...acodec,
-      "-shortest",
-      output
-    ],
-    { stdio: "inherit" }
-  );
+  const args = [
+    "-y",
+    "-i",
+    video,
+    "-i",
+    audio,
+    "-filter_complex",
+    filter,
+    "-map",
+    "[v]",
+    "-map",
+    "[a]",
+    "-c:v",
+    ...vcodec,
+    "-pix_fmt",
+    "yuv420p",
+    "-c:a",
+    ...acodec,
+    "-shortest",
+    output
+  ];
+  const command = `ffmpeg ${args.map((a) => /[\s;]/.test(a) ? `"${a}"` : a).join(" ")}`;
+  const r = spawnSync("ffmpeg", args, { encoding: "utf8" });
+  if (r.status !== 0) {
+    const tail = (r.stderr ?? "").split("\n").slice(-25).join("\n");
+    throw new Error(`ffmpeg mux failed (exit ${r.status}):
+${tail}`);
+  }
+  return { command, stderr: r.stderr ?? "" };
+}
+function meanVolume(file) {
+  const r = spawnSync("ffmpeg", ["-i", file, "-af", "volumedetect", "-f", "null", "-"], {
+    encoding: "utf8"
+  });
+  const m = /mean_volume:\s*(\S+ dB)/.exec(r.stderr ?? "");
+  return m ? m[1] : null;
 }
 function hasAudioStream(file) {
   const out = execFileSync(
@@ -8230,8 +8241,14 @@ function resolveSite(site, cwd) {
   return pathToFileURL2(resolve2(cwd, site)).href;
 }
 async function render(scene, config, opts) {
-  const log = opts.onLog ?? (() => {
-  });
+  const logLines = [];
+  const log = (msg) => {
+    logLines.push(msg);
+    opts.onLog?.(msg);
+  };
+  log(
+    `narrate render \u2014 scene "${scene.name}", provider "${config.tts.provider}", platform ${process.platform}`
+  );
   ensureFfmpeg();
   if (!await hasPlaywright()) {
     log("First run: provisioning the headless browser (one-time)\u2026");
@@ -8258,11 +8275,13 @@ async function render(scene, config, opts) {
   const sceneToRecord = { ...scene, site: resolveSite(scene.site, opts.cwd) };
   const { videoPath, leadInMs } = await recorder.record(sceneToRecord, durations);
   if (!videoPath) throw new Error("Recording produced no video file.");
+  log(`Recorded video: ${videoPath} (lead-in ${(leadInMs / 1e3).toFixed(3)}s)`);
   log("Muxing narration onto video\u2026");
   const narration = join4(outDir, "narration.wav");
   concatWavs(wavs, narration, join4(outDir, "audio.txt"));
+  log(`Combined narration: ${narration} (mean volume ${meanVolume(narration) ?? "n/a"})`);
   const finalOut = join4(outDir, `${scene.name}.${config.output.format}`);
-  muxNarration({
+  const mux = muxNarration({
     video: videoPath,
     audio: narration,
     leadInSec: leadInMs / 1e3,
@@ -8270,17 +8289,32 @@ async function render(scene, config, opts) {
     format: config.output.format,
     output: finalOut
   });
-  if (!hasAudioStream(finalOut)) {
+  log(`Mux command:
+${mux.command}`);
+  log(`ffmpeg mux output (tail):
+${mux.stderr.trim().split("\n").slice(-12).join("\n")}`);
+  const audioOk = hasAudioStream(finalOut);
+  const finalVol = meanVolume(finalOut);
+  log(`Final video: ${finalOut}`);
+  log(`Final audio: stream=${audioOk ? "present" : "MISSING"}, mean volume ${finalVol ?? "n/a"}`);
+  const silent2 = !finalVol || /-(9\d(\.\d+)?|inf) dB/.test(finalVol);
+  if (!audioOk || silent2) {
     log(
-      "\u26A0\uFE0F  Warning: the final video has no audio stream \u2014 the mux dropped the narration. Please report this (include your OS and how the browser was launched)."
+      audioOk ? "\u26A0\uFE0F  Warning: the final video's audio track is silent (near -inf dB) even though narration.wav had sound \u2014 the mux lost the audio content." : "\u26A0\uFE0F  Warning: the final video has NO audio stream \u2014 the mux dropped the narration entirely."
     );
+  }
+  try {
+    writeFileSync3(join4(outDir, "narrate.log"), `${logLines.join("\n")}
+`);
+    opts.onLog?.(`Diagnostic log: ${join4(outDir, "narrate.log")}`);
+  } catch {
   }
   return finalOut;
 }
 
 // src/cli.ts
 var program2 = new Command();
-program2.name("narrate").description("Generate a narrated walkthrough video of a website.").version("0.8.0");
+program2.name("narrate").description("Generate a narrated walkthrough video of a website.").version("0.9.0");
 program2.command("render").description("TTS \u2192 record \u2192 mux into one narrated video.").requiredOption("-s, --scene <file>", "scene JSON file").option("-c, --config <file>", "config file (default: narrate.config.json)").option("-o, --out <dir>", "output directory (overrides config output.dir)").option("--provider <name>", "override TTS provider (gemini|elevenlabs|os|mock)").option("--voice <name>", "override voice").action(async (o) => {
   const cwd = process.cwd();
   loadEnv(cwd);

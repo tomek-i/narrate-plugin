@@ -57,10 +57,11 @@ and `setup` (force-install Playwright + Chromium; normally automatic on first re
    ```
 5. **Deliver**: copy `./.narrate/tmp/<slug>.mp4` → `./docs/<slug>.mp4`, ensure
    `.narrate/` is in the project `.gitignore`, and stop the dev server.
-6. **Keep temp files, then ask.** Do **not** auto-delete `./.narrate/tmp` — it holds
-   the per-beat `audio/`, combined `narration.wav`, raw `video/`, scene JSON, and the
-   muxed mp4, which are useful for troubleshooting (e.g. play `narration.wav` to
-   verify audio before the mux). Report the final `./docs/<slug>.mp4`, then ask
+6. **Report audio + keep temp.** Read `./.narrate/tmp/narrate.log` and quote its
+   **"Final audio"** line (stream present? mean volume in dB). Do **not** auto-delete
+   `./.narrate/tmp` — it holds the per-beat `audio/`, combined `narration.wav`, raw
+   `video/`, scene JSON, the muxed mp4, and `narrate.log`. If the video seems silent,
+   ask the user to paste `narrate.log`. Report the final `./docs/<slug>.mp4`, then ask
    **"Remove the temp files now? (y/n)"** and delete `./.narrate/tmp` only if yes.
 
 ## Scene format

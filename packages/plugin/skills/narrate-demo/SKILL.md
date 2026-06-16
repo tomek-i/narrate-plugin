@@ -36,12 +36,13 @@ ship inside the plugin.
    `./.narrate/tmp/narrate-demo.mp4` → `./docs/narrate-demo.mp4`. Ensure the
    project's `.gitignore` contains `.narrate/`.
 
-5. **Keep temp files, then ask.** Do **not** auto-delete. Tell the user the
-   intermediates are kept at `./.narrate/tmp` for troubleshooting — per-beat audio
-   in `audio/`, the combined `narration.wav`, the raw `video/`, and the muxed
-   `narrate-demo.mp4`. (Tip: play `./.narrate/tmp/narration.wav` to check the audio
-   before the mux.) Then ask **"Remove the temp files now? (y/n)"** and only delete
-   `./.narrate/tmp` if they say yes.
+5. **Report audio + keep temp.** Read `./.narrate/tmp/narrate.log` and quote its
+   **"Final audio"** line (stream present? mean volume in dB) so the user knows
+   whether the muxed audio is real. Do **not** auto-delete: the intermediates are
+   kept at `./.narrate/tmp` — per-beat audio in `audio/`, combined `narration.wav`,
+   raw `video/`, the muxed `narrate-demo.mp4`, and the full `narrate.log`. If the
+   video seems silent, ask the user to paste `narrate.log`. Then ask **"Remove the
+   temp files now? (y/n)"** and delete `./.narrate/tmp` only if they say yes.
 
 6. **Report** the path `./docs/narrate-demo.mp4` and explain that this same engine
    powers `/narrate-video <prompt>` against the user's own running app.
