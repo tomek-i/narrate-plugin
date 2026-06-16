@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import type { Browser, Page } from "playwright";
+import type { Browser, BrowserType, Page } from "playwright";
 import { installChromium } from "../setup.js";
 import type { Config, Durations, Scene, Step } from "../types.js";
 import type { RecordResult, Recorder } from "./recorder.js";
@@ -8,6 +8,33 @@ import type { RecordResult, Recorder } from "./recorder.js";
  * Load Playwright lazily so the bundled CLI can run TTS-only paths (and `narrate
  * setup`) without it installed. Throws a friendly error pointing at setup.
  */
+/**
+ * Launch a Chromium-based browser, preferring one already installed on the
+ * machine (Edge, then Chrome) so we avoid downloading Playwright's Chromium.
+ * Falls back to downloading Chromium only if no system browser is found.
+ */
+async function launchBrowser(chromium: BrowserType): Promise<Browser> {
+  const attempts: Array<{ channel?: "msedge" | "chrome" }> = [
+    {}, // Playwright's Chromium, if already downloaded
+    { channel: "msedge" }, // preinstalled on Windows
+    { channel: "chrome" },
+  ];
+  let lastErr: unknown;
+  for (const opts of attempts) {
+    try {
+      return await chromium.launch(opts);
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  try {
+    installChromium();
+    return await chromium.launch();
+  } catch {
+    throw lastErr;
+  }
+}
+
 async function loadChromium() {
   try {
     const pw = await import("playwright");
@@ -34,16 +61,7 @@ export class PlaywrightRecorder implements Recorder {
   async record(scene: Scene, durations: Durations): Promise<RecordResult> {
     const size = { width: scene.viewport.width, height: scene.viewport.height };
     const chromium = await loadChromium();
-    let browser: Browser;
-    try {
-      browser = await chromium.launch();
-    } catch (err) {
-      // Package present but the browser binary is missing — fetch it and retry once.
-      if (/Executable doesn't exist|playwright install/i.test(String(err))) {
-        installChromium();
-        browser = await chromium.launch();
-      } else throw err;
-    }
+    const browser = await launchBrowser(chromium);
     const context = await browser.newContext({
       viewport: size,
       recordVideo: { dir: join(this.outDir, "video"), size },

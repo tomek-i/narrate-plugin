@@ -7544,7 +7544,7 @@ var SceneSchema = external_exports.object({
 });
 var ConfigSchema = external_exports.object({
   tts: external_exports.object({
-    provider: external_exports.enum(["gemini", "elevenlabs", "mock"]).default("gemini"),
+    provider: external_exports.enum(["gemini", "elevenlabs", "os", "mock"]).default("gemini"),
     voice: external_exports.string().default("Kore"),
     model: external_exports.string().optional(),
     /** Override the env var name the API key is read from. */
@@ -7563,6 +7563,7 @@ var ConfigSchema = external_exports.object({
 var KEY_ENV = {
   gemini: "NARRATE_GEMINI_API_KEY",
   elevenlabs: "NARRATE_ELEVENLABS_API_KEY",
+  os: null,
   mock: null
 };
 function loadEnv(cwd) {
@@ -7600,8 +7601,8 @@ function resolveApiKey(config) {
 }
 
 // src/pipeline.ts
-import { mkdirSync, writeFileSync as writeFileSync2 } from "fs";
-import { join as join3, resolve as resolve2 } from "path";
+import { mkdirSync, writeFileSync as writeFileSync3 } from "fs";
+import { join as join4, resolve as resolve2 } from "path";
 import { pathToFileURL as pathToFileURL2 } from "url";
 
 // src/mux/ffmpeg.ts
@@ -7702,6 +7703,14 @@ function packageRoot() {
   }
   return dir;
 }
+function npm(args, cwd, extraEnv = {}) {
+  execFileSync2(isWin ? "npm.cmd" : "npm", args, {
+    cwd,
+    stdio: "inherit",
+    shell: isWin,
+    env: { ...process.env, ...extraEnv }
+  });
+}
 async function hasPlaywright() {
   try {
     await import("playwright");
@@ -7713,26 +7722,48 @@ async function hasPlaywright() {
 function installPlaywrightPackage(log = console.log) {
   const root = packageRoot();
   log(`Installing Playwright into ${root}\u2026`);
-  execFileSync2(isWin ? "npm.cmd" : "npm", ["install", "--omit=dev"], {
-    cwd: root,
-    stdio: "inherit"
-  });
+  npm(["install", "--omit=dev"], root, { PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1" });
 }
 function installChromium(log = console.log) {
-  log("Installing the Chromium browser\u2026");
-  execFileSync2(isWin ? "npx.cmd" : "npx", ["playwright", "install", "chromium"], {
-    cwd: packageRoot(),
-    stdio: "inherit"
-  });
+  const root = packageRoot();
+  const cli = join(root, "node_modules", "playwright", "cli.js");
+  log("Downloading the Chromium browser\u2026");
+  if (existsSync2(cli)) {
+    execFileSync2(process.execPath, [cli, "install", "chromium"], { cwd: root, stdio: "inherit" });
+  } else {
+    npm(["exec", "--", "playwright", "install", "chromium"], root);
+  }
 }
 async function setup(log = console.log) {
   if (await hasPlaywright()) log("Playwright already installed.");
   else installPlaywrightPackage(log);
-  installChromium(log);
-  log("Setup complete.");
+  log("Setup complete. A browser will be resolved on first render.");
 }
 
 // src/record/playwright.ts
+async function launchBrowser(chromium) {
+  const attempts = [
+    {},
+    // Playwright's Chromium, if already downloaded
+    { channel: "msedge" },
+    // preinstalled on Windows
+    { channel: "chrome" }
+  ];
+  let lastErr;
+  for (const opts of attempts) {
+    try {
+      return await chromium.launch(opts);
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  try {
+    installChromium();
+    return await chromium.launch();
+  } catch {
+    throw lastErr;
+  }
+}
 async function loadChromium() {
   try {
     const pw = await import("playwright");
@@ -7753,15 +7784,7 @@ var PlaywrightRecorder = class {
   async record(scene, durations) {
     const size = { width: scene.viewport.width, height: scene.viewport.height };
     const chromium = await loadChromium();
-    let browser;
-    try {
-      browser = await chromium.launch();
-    } catch (err) {
-      if (/Executable doesn't exist|playwright install/i.test(String(err))) {
-        installChromium();
-        browser = await chromium.launch();
-      } else throw err;
-    }
+    const browser = await launchBrowser(chromium);
     const context = await browser.newContext({
       viewport: size,
       recordVideo: { dir: join2(this.outDir, "video"), size },
@@ -8046,6 +8069,108 @@ var MockProvider = class {
   }
 };
 
+// src/tts/os.ts
+import { execFileSync as execFileSync3 } from "child_process";
+import { mkdtempSync, readFileSync as readFileSync2, rmSync, writeFileSync as writeFileSync2 } from "fs";
+import { tmpdir } from "os";
+import { join as join3 } from "path";
+var OsTtsProvider = class {
+  name = "os";
+  warned = false;
+  async synth(text, opts) {
+    try {
+      switch (process.platform) {
+        case "win32":
+          return windows(text, opts?.voice);
+        case "darwin":
+          return macos(text, opts?.voice);
+        default:
+          return linux(text, opts?.voice);
+      }
+    } catch (err) {
+      if (!this.warned) {
+        this.warned = true;
+        const reason = err instanceof Error ? err.message : String(err);
+        console.warn(
+          `[narrate] OS text-to-speech is unavailable (${reason}); falling back to silent narration. Set a TTS API key (e.g. NARRATE_GEMINI_API_KEY) for real audio.`
+        );
+      }
+      return silent(text);
+    }
+  }
+};
+function run(cmd, args) {
+  execFileSync3(cmd, args, { stdio: "ignore" });
+}
+function scratch() {
+  const dir = mkdtempSync(join3(tmpdir(), "narrate-os-"));
+  return {
+    dir,
+    txt: join3(dir, "in.txt"),
+    out: (ext) => join3(dir, `out.${ext}`),
+    clean: () => rmSync(dir, { recursive: true, force: true })
+  };
+}
+function windows(text, voice) {
+  const s = scratch();
+  const wav = s.out("wav");
+  writeFileSync2(s.txt, text, "utf8");
+  const selectVoice = voice ? `$s.SelectVoice('${voice.replace(/'/g, "''")}');` : "";
+  const ps = [
+    "Add-Type -AssemblyName System.Speech;",
+    `$t=[IO.File]::ReadAllText('${s.txt}',[Text.Encoding]::UTF8);`,
+    "$s=New-Object System.Speech.Synthesis.SpeechSynthesizer;",
+    selectVoice,
+    `$s.SetOutputToWaveFile('${wav}');$s.Speak($t);$s.Dispose();`
+  ].join("");
+  const args = ["-NoProfile", "-NonInteractive", "-Command", ps];
+  try {
+    run("powershell", args);
+  } catch {
+    run("pwsh", args);
+  }
+  const audio = readFileSync2(wav);
+  s.clean();
+  return { audio, ext: "wav" };
+}
+function macos(text, voice) {
+  const s = scratch();
+  const aiff = s.out("aiff");
+  writeFileSync2(s.txt, text, "utf8");
+  const args = ["-f", s.txt, "-o", aiff];
+  if (voice) args.unshift("-v", voice);
+  run("say", args);
+  const audio = readFileSync2(aiff);
+  s.clean();
+  return { audio, ext: "aiff" };
+}
+function linux(text, voice) {
+  const s = scratch();
+  const wav = s.out("wav");
+  writeFileSync2(s.txt, text, "utf8");
+  const bin = ["espeak-ng", "espeak"].find((b) => {
+    try {
+      run(b, ["--version"]);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+  if (!bin) throw new Error("no espeak-ng/espeak on PATH");
+  const args = ["-w", wav, "-f", s.txt];
+  if (voice) args.push("-v", voice);
+  run(bin, args);
+  const audio = readFileSync2(wav);
+  s.clean();
+  return { audio, ext: "wav" };
+}
+function silent(text) {
+  const rate = 24e3;
+  const words = text.trim().split(/\s+/).length;
+  const seconds = Math.max(1.5, words * 0.38);
+  return { audio: pcmToWav(Buffer.alloc(Math.round(rate * seconds) * 2), rate), ext: "wav" };
+}
+
 // src/tts/index.ts
 function makeProvider(config) {
   const { provider, voice, model } = config.tts;
@@ -8054,6 +8179,8 @@ function makeProvider(config) {
       return new GeminiProvider(resolveApiKey(config), voice, model);
     case "elevenlabs":
       return new ElevenLabsProvider(resolveApiKey(config), voice, model);
+    case "os":
+      return new OsTtsProvider();
     case "mock":
       return new MockProvider();
   }
@@ -8074,7 +8201,7 @@ async function render(scene, config, opts) {
     installChromium(log);
   }
   const outDir = resolve2(opts.cwd, config.output.dir);
-  const audioDir = join3(outDir, "audio");
+  const audioDir = join4(outDir, "audio");
   mkdirSync(audioDir, { recursive: true });
   const provider = makeProvider(config);
   log(`Generating narration with "${provider.name}" (voice: ${config.tts.voice})\u2026`);
@@ -8082,9 +8209,9 @@ async function render(scene, config, opts) {
   const wavs = [];
   for (const beat of scene.beats) {
     const res = await provider.synth(beat.say, { voice: beat.voice });
-    const rawPath = join3(audioDir, `${beat.id}.${res.ext}`);
-    writeFileSync2(rawPath, res.audio);
-    const wavPath = join3(audioDir, `${beat.id}.norm.wav`);
+    const rawPath = join4(audioDir, `${beat.id}.${res.ext}`);
+    writeFileSync3(rawPath, res.audio);
+    const wavPath = join4(audioDir, `${beat.id}.norm.wav`);
     normalizeToWav(rawPath, wavPath);
     durations[beat.id] = probeDuration(wavPath);
     wavs.push(wavPath);
@@ -8096,9 +8223,9 @@ async function render(scene, config, opts) {
   const { videoPath, leadInMs } = await recorder.record(sceneToRecord, durations);
   if (!videoPath) throw new Error("Recording produced no video file.");
   log("Muxing narration onto video\u2026");
-  const narration = join3(outDir, "narration.wav");
-  concatWavs(wavs, narration, join3(outDir, "audio.txt"));
-  const finalOut = join3(outDir, `${scene.name}.${config.output.format}`);
+  const narration = join4(outDir, "narration.wav");
+  concatWavs(wavs, narration, join4(outDir, "audio.txt"));
+  const finalOut = join4(outDir, `${scene.name}.${config.output.format}`);
   muxNarration({
     video: videoPath,
     audio: narration,
@@ -8112,8 +8239,8 @@ async function render(scene, config, opts) {
 
 // src/cli.ts
 var program2 = new Command();
-program2.name("narrate").description("Generate a narrated walkthrough video of a website.").version("0.1.0");
-program2.command("render").description("TTS \u2192 record \u2192 mux into one narrated video.").requiredOption("-s, --scene <file>", "scene JSON file").option("-c, --config <file>", "config file (default: narrate.config.json)").option("-o, --out <dir>", "output directory (overrides config output.dir)").option("--provider <name>", "override TTS provider (gemini|elevenlabs|mock)").option("--voice <name>", "override voice").action(async (o) => {
+program2.name("narrate").description("Generate a narrated walkthrough video of a website.").version("0.2.0");
+program2.command("render").description("TTS \u2192 record \u2192 mux into one narrated video.").requiredOption("-s, --scene <file>", "scene JSON file").option("-c, --config <file>", "config file (default: narrate.config.json)").option("-o, --out <dir>", "output directory (overrides config output.dir)").option("--provider <name>", "override TTS provider (gemini|elevenlabs|os|mock)").option("--voice <name>", "override voice").action(async (o) => {
   const cwd = process.cwd();
   loadEnv(cwd);
   const config = loadConfig(cwd, o.config);

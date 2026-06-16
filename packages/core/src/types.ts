@@ -100,7 +100,7 @@ export type Scene = z.infer<typeof SceneSchema>;
 export const ConfigSchema = z.object({
   tts: z
     .object({
-      provider: z.enum(["gemini", "elevenlabs", "mock"]).default("gemini"),
+      provider: z.enum(["gemini", "elevenlabs", "os", "mock"]).default("gemini"),
       voice: z.string().default("Kore"),
       model: z.string().optional(),
       /** Override the env var name the API key is read from. */

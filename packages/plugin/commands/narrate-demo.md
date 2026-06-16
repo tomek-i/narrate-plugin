@@ -12,16 +12,23 @@ ship inside the plugin.
    missing, tell the user how to install it and stop. (Playwright + Chromium are
    auto-provisioned on first run; the first demo may pause to fetch the browser.)
 
-2. **Pick a provider.** If a TTS key is available (`NARRATE_GEMINI_API_KEY` or
-   another `NARRATE_*` key in `.env.narrate`/env), render with real narration.
-   Otherwise add `--provider mock` and warn the user the narration will be silent.
+2. **Pick a voice.** Look for a `NARRATE_*` key in the environment or
+   `.env.narrate`. Then:
+   - **Key found** → render with that provider (real narration).
+   - **No key** → tell the user clearly: *"No TTS API key found."* Offer to add one
+     (e.g. a free Gemini key from https://aistudio.google.com/apikey). If they give
+     one, save it to `./.env.narrate` as `NARRATE_GEMINI_API_KEY=…`, ensure
+     `.env.narrate` is in the project `.gitignore`, then use it.
+   - **They decline** → use `--provider os` (the operating system's built-in
+     voice — Windows/macOS sound fine; Linux needs `espeak`, else it's silent).
+     Mention quality is basic but needs no key. `--provider mock` is the silent option.
 
-3. **Render the bundled demo** into a temp dir:
+3. **Render the bundled demo** into a temp dir (append the chosen `--provider` if
+   not using the configured default):
    ```bash
    node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" render \
-     --scene "${CLAUDE_PLUGIN_ROOT}/examples/demo.scene.json" --out ./.narrate/tmp
+     --scene "${CLAUDE_PLUGIN_ROOT}/examples/demo.scene.json" --out ./.narrate/tmp --provider os
    ```
-   (Append `--provider mock` if there's no key.)
 
 4. **Deliver & clean up.** Create `./docs/` if needed, copy
    `./.narrate/tmp/narrate-demo.mp4` → `./docs/narrate-demo.mp4`, ensure the

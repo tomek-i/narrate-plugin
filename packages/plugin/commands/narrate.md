@@ -50,8 +50,11 @@ Work through these phases. Think before each; don't blindly run commands.
 node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" render \
   --scene ./.narrate/tmp/<slug>.scene.json --out ./.narrate/tmp
 ```
-- A TTS key is read from `NARRATE_<PROVIDER>_API_KEY` (`.env.narrate` or env). If
-  none is available, add `--provider mock` and warn the user the audio is silent.
+- **Voice:** a TTS key is read from `NARRATE_<PROVIDER>_API_KEY` (`.env.narrate` or
+  env). If none is found, tell the user clearly and offer to add one (save it to
+  `./.env.narrate`, and make sure `.env.narrate` is gitignored). If they decline,
+  add `--provider os` to narrate with the operating system's built-in voice
+  (no key needed; `--provider mock` is the silent option).
 - If the engine warns about overrun beats, adjust the scene and re-render.
 
 ## 6. Deliver & clean up

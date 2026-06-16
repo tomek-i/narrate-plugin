@@ -1,7 +1,7 @@
 export interface SynthResult {
   audio: Buffer;
-  /** Container of the returned bytes; normalised to WAV downstream. */
-  ext: "wav" | "mp3";
+  /** File extension of the returned bytes (any ffmpeg-readable container); normalised to WAV downstream. */
+  ext: string;
 }
 
 export interface SynthOptions {

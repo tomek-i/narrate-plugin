@@ -8,6 +8,7 @@ import { type Config, ConfigSchema, type Scene, SceneSchema } from "./types.js";
 const KEY_ENV: Record<string, string | null> = {
   gemini: "NARRATE_GEMINI_API_KEY",
   elevenlabs: "NARRATE_ELEVENLABS_API_KEY",
+  os: null,
   mock: null,
 };
 

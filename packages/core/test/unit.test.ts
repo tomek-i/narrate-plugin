@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { parseRate, pcmToWav } from "../src/audio/wav.js";
 import { MockProvider } from "../src/tts/mock.js";
+import { OsTtsProvider } from "../src/tts/os.js";
 import { ConfigSchema, SceneSchema } from "../src/types.js";
 
 test("pcmToWav writes a valid 44-byte WAV header", () => {
@@ -27,6 +28,12 @@ test("MockProvider returns silent WAV sized to the text", async () => {
   assert.equal(short.ext, "wav");
   assert.equal(short.audio.toString("ascii", 0, 4), "RIFF");
   assert.ok(long.audio.length > short.audio.length);
+});
+
+test("OsTtsProvider returns audio (real, or silent if no OS voice)", async () => {
+  const res = await new OsTtsProvider().synth("Testing the operating system voice.");
+  assert.ok(Buffer.isBuffer(res.audio) && res.audio.length > 0);
+  assert.equal(typeof res.ext, "string");
 });
 
 test("SceneSchema applies defaults and requires at least one beat", () => {

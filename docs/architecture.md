@@ -52,9 +52,4 @@ narrate/
 └── narrate.{config,scene}.schema.json   # generated from the zod schemas
 ```
 
-## Roadmap
-
-- Interactive (Claude-in-the-loop) recorder for ad-hoc clips where sync doesn't matter.
-- A "code explanation" scene type (render highlighted code + narrate).
-- Chapters / captions track.
-- More TTS providers; voice listing/preview.
+Planned features and their rationale live in [roadmap.md](./roadmap.md).

@@ -9,7 +9,7 @@ const program = new Command();
 program
   .name("narrate")
   .description("Generate a narrated walkthrough video of a website.")
-  .version("0.1.0");
+  .version("0.2.0");
 
 program
   .command("render")
@@ -17,7 +17,7 @@ program
   .requiredOption("-s, --scene <file>", "scene JSON file")
   .option("-c, --config <file>", "config file (default: narrate.config.json)")
   .option("-o, --out <dir>", "output directory (overrides config output.dir)")
-  .option("--provider <name>", "override TTS provider (gemini|elevenlabs|mock)")
+  .option("--provider <name>", "override TTS provider (gemini|elevenlabs|os|mock)")
   .option("--voice <name>", "override voice")
   .action(async (o) => {
     const cwd = process.cwd();

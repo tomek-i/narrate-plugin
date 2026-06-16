@@ -44,8 +44,9 @@ API key (Gemini by default; `--provider mock` needs none).
 - [Usage](./docs/usage.md) — plugin + CLI, conventions, flags
 - [Scenes](./docs/scenes.md) — scene format + full step reference
 - [Configuration](./docs/configuration.md) — config file, TTS providers, API keys
-- [Architecture](./docs/architecture.md) — how it works, distribution, roadmap
+- [Architecture](./docs/architecture.md) — how it works, distribution
 - [Development](./docs/development.md) — monorepo, build, the committed bundle
+- [Roadmap](./docs/roadmap.md) — planned features and the reasoning behind them
 
 ## License
 

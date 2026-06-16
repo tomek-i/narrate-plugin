@@ -1,6 +1,6 @@
 {
   "name": "narrate-monorepo",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Generate narrated walkthrough videos of a website using a headless browser + text-to-speech.",
   "author": {
