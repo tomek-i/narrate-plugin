@@ -19,14 +19,15 @@ Committable (no secrets). All fields are optional — omit the file to use defau
     "height": 900,
     "fps": 25,
     "format": "mp4",                           // mp4 | webm
-    "crf": 18                                  // encode quality; lower = sharper / less banding (try 16 for very flat dark UIs)
+    "crf": 16                                  // encode quality; lower = sharper / less banding (try 14 for stubborn dark-UI flicker)
   }
 }
 ```
 
 mp4 output uses H.264 video + **MP3** audio (MP3 so VS Code's preview, which can't
-decode AAC, still plays sound) with `+faststart`. If a dark/flat UI shows banding
-or blocking, lower `crf` (e.g. 16).
+decode AAC, still plays sound), with `+faststart` and screen-content tuning
+(deband, dark-biased AQ, flat I/P/B quality, no scene-cut keyframes) to avoid
+flicker/banding on flat dark UIs. If flicker persists, lower `crf` (e.g. 14).
 
 Override per run with `--provider`, `--voice`, and `--out`.
 

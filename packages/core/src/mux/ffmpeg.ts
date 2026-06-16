@@ -86,9 +86,11 @@ export function muxNarration(opts: {
   const vcodec =
     format === "webm"
       ? ["libvpx-vp9", "-b:v", "0", "-crf", String(crf)]
-      : // `slow` preset + lower CRF keeps the flat dark UI clean. ipratio/pbratio=1.0
-        // flatten the per-frame-type quality boost so periodic keyframes (every GOP)
-        // don't visibly "pulse" on otherwise-static screen content.
+      : // Kill flat-dark-area flicker on screen content:
+        //  ipratio/pbratio=1.0 → no per-frame-type quality boost (no keyframe pulse)
+        //  scenecut=0          → no extra I-frames when scrolling starts
+        //  aq-mode=3 + strength → bias bits into dark regions so they stay stable
+        //  deblock=1,1         → stronger in-loop deblocking smooths block edges
         [
           "libx264",
           "-preset",
@@ -96,13 +98,15 @@ export function muxNarration(opts: {
           "-crf",
           String(crf),
           "-x264-params",
-          "ipratio=1.0:pbratio=1.0",
+          "ipratio=1.0:pbratio=1.0:scenecut=0:aq-mode=3:aq-strength=1.2:deblock=1,1",
         ];
   // MP3 (not AAC) for mp4 audio: VS Code's preview can't decode AAC, while MP3
   // plays everywhere (VS Code preview, browsers, VLC, Windows). Voice at 192k is fine.
   const acodec = format === "webm" ? ["libopus"] : ["libmp3lame", "-b:a", "192k"];
+  // `deband` dithers away banding in flat/dark gradients (edge-preserving, so text
+  // stays sharp); the rest trims the lead-in and rebases PTS.
   const filter = [
-    `[0:v]trim=start=${leadInSec.toFixed(3)},setpts=PTS-STARTPTS,fps=${fps},format=yuv420p[v]`,
+    `[0:v]trim=start=${leadInSec.toFixed(3)},setpts=PTS-STARTPTS,fps=${fps},format=yuv420p,deband=range=24:blur=1[v]`,
     "[1:a]aresample=async=1:first_pts=0[a]",
   ].join(";");
   const args = [

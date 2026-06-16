@@ -7557,8 +7557,8 @@ var ConfigSchema = external_exports.object({
     fps: external_exports.number().default(25),
     format: external_exports.enum(["mp4", "webm"]).default("mp4"),
     /** Encode quality (x264/vp9 CRF). Lower = higher quality/less banding. */
-    crf: external_exports.number().default(18)
-  }).default({ dir: "out", width: 1440, height: 900, fps: 25, format: "mp4", crf: 18 })
+    crf: external_exports.number().default(16)
+  }).default({ dir: "out", width: 1440, height: 900, fps: 25, format: "mp4", crf: 16 })
 });
 
 // src/config.ts
@@ -7660,9 +7660,11 @@ function concatWavs(files, output, listPath) {
 function muxNarration(opts) {
   const { video, audio, leadInSec, fps, format, crf, output } = opts;
   const vcodec = format === "webm" ? ["libvpx-vp9", "-b:v", "0", "-crf", String(crf)] : (
-    // `slow` preset + lower CRF keeps the flat dark UI clean. ipratio/pbratio=1.0
-    // flatten the per-frame-type quality boost so periodic keyframes (every GOP)
-    // don't visibly "pulse" on otherwise-static screen content.
+    // Kill flat-dark-area flicker on screen content:
+    //  ipratio/pbratio=1.0 → no per-frame-type quality boost (no keyframe pulse)
+    //  scenecut=0          → no extra I-frames when scrolling starts
+    //  aq-mode=3 + strength → bias bits into dark regions so they stay stable
+    //  deblock=1,1         → stronger in-loop deblocking smooths block edges
     [
       "libx264",
       "-preset",
@@ -7670,12 +7672,12 @@ function muxNarration(opts) {
       "-crf",
       String(crf),
       "-x264-params",
-      "ipratio=1.0:pbratio=1.0"
+      "ipratio=1.0:pbratio=1.0:scenecut=0:aq-mode=3:aq-strength=1.2:deblock=1,1"
     ]
   );
   const acodec = format === "webm" ? ["libopus"] : ["libmp3lame", "-b:a", "192k"];
   const filter = [
-    `[0:v]trim=start=${leadInSec.toFixed(3)},setpts=PTS-STARTPTS,fps=${fps},format=yuv420p[v]`,
+    `[0:v]trim=start=${leadInSec.toFixed(3)},setpts=PTS-STARTPTS,fps=${fps},format=yuv420p,deband=range=24:blur=1[v]`,
     "[1:a]aresample=async=1:first_pts=0[a]"
   ].join(";");
   const args = [
@@ -8333,7 +8335,7 @@ ${mux.stderr.trim().split("\n").slice(-12).join("\n")}`);
 
 // src/cli.ts
 var program2 = new Command();
-program2.name("narrate").description("Generate a narrated walkthrough video of a website.").version("0.13.0");
+program2.name("narrate").description("Generate a narrated walkthrough video of a website.").version("0.14.0");
 program2.command("render").description("TTS \u2192 record \u2192 mux into one narrated video.").requiredOption("-s, --scene <file>", "scene JSON file").option("-c, --config <file>", "config file (default: narrate.config.json)").option("-o, --out <dir>", "output directory (overrides config output.dir)").option("--provider <name>", "override TTS provider (gemini|elevenlabs|os|mock)").option("--voice <name>", "override voice").action(async (o) => {
   const cwd = process.cwd();
   loadEnv(cwd);

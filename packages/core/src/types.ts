@@ -115,9 +115,9 @@ export const ConfigSchema = z.object({
       fps: z.number().default(25),
       format: z.enum(["mp4", "webm"]).default("mp4"),
       /** Encode quality (x264/vp9 CRF). Lower = higher quality/less banding. */
-      crf: z.number().default(18),
+      crf: z.number().default(16),
     })
-    .default({ dir: "out", width: 1440, height: 900, fps: 25, format: "mp4", crf: 18 }),
+    .default({ dir: "out", width: 1440, height: 900, fps: 25, format: "mp4", crf: 16 }),
 });
 export type Config = z.infer<typeof ConfigSchema>;
 

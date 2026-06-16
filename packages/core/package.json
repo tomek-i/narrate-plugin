@@ -1,6 +1,6 @@
 {
   "name": "@narrate/core",
-  "version": "0.13.0",
+  "version": "0.14.0",
   "description": "Engine + CLI for generating narrated walkthrough videos (browser recording + text-to-speech).",
   "type": "module",
   "bin": {

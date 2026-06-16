@@ -11,6 +11,6 @@
     "height": 900,
     "fps": 25,
     "format": "mp4",
-    "crf": 18
+    "crf": 16
   }
 }
