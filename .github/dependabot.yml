@@ -11,6 +11,11 @@ updates:
       dependencies:
         patterns: ["*"]
         update-types: ["minor", "patch"]
+    # Major bumps are breaking; handle them deliberately, not via auto-PRs.
+    # (Security updates still come through regardless of this ignore.)
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   # Keep GitHub Actions pinned to current versions.
   - package-ecosystem: github-actions
