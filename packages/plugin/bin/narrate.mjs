@@ -8239,7 +8239,7 @@ async function render(scene, config, opts) {
 
 // src/cli.ts
 var program2 = new Command();
-program2.name("narrate").description("Generate a narrated walkthrough video of a website.").version("0.2.0");
+program2.name("narrate").description("Generate a narrated walkthrough video of a website.").version("0.3.0");
 program2.command("render").description("TTS \u2192 record \u2192 mux into one narrated video.").requiredOption("-s, --scene <file>", "scene JSON file").option("-c, --config <file>", "config file (default: narrate.config.json)").option("-o, --out <dir>", "output directory (overrides config output.dir)").option("--provider <name>", "override TTS provider (gemini|elevenlabs|os|mock)").option("--voice <name>", "override voice").action(async (o) => {
   const cwd = process.cwd();
   loadEnv(cwd);
