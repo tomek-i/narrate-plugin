@@ -59,7 +59,12 @@ export function concatWavs(files: string[], output: string, listPath: string): v
 
 /**
  * Trim the lead-in from the front of the recording and overlay the narration.
- * Audio is shorter than the (paced) video, so -shortest clips the tail.
+ *
+ * The video is trimmed with a `trim`+`setpts` filter (not an input `-ss` seek):
+ * browser `recordVideo` webms (Chromium, and especially Edge/Chrome channels)
+ * have irregular start timestamps, and an input seek combined with `-shortest`
+ * could drop the muxed audio entirely. Trimming via filter rebases the video to
+ * PTS 0 so it aligns with the narration (input 1) regardless of the source.
  */
 export function muxNarration(opts: {
   video: string;
@@ -75,22 +80,21 @@ export function muxNarration(opts: {
       ? ["libvpx-vp9", "-b:v", "0", "-crf", "30"]
       : ["libx264", "-preset", "medium", "-crf", "20"];
   const acodec = format === "webm" ? ["libopus"] : ["aac", "-b:a", "192k"];
+  const trim = `[0:v]trim=start=${leadInSec.toFixed(3)},setpts=PTS-STARTPTS,fps=${fps},format=yuv420p[v]`;
   execFileSync(
     "ffmpeg",
     [
       "-y",
-      "-ss",
-      leadInSec.toFixed(3),
       "-i",
       video,
       "-i",
       audio,
+      "-filter_complex",
+      trim,
       "-map",
-      "0:v",
+      "[v]",
       "-map",
       "1:a",
-      "-vf",
-      `fps=${fps},format=yuv420p`,
       "-c:v",
       ...vcodec,
       "-c:a",
