@@ -3040,365 +3040,6 @@ var require_commander = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/dotenv@16.6.1/node_modules/dotenv/package.json
-var require_package = __commonJS({
-  "../../node_modules/.pnpm/dotenv@16.6.1/node_modules/dotenv/package.json"(exports, module) {
-    module.exports = {
-      name: "dotenv",
-      version: "16.6.1",
-      description: "Loads environment variables from .env file",
-      main: "lib/main.js",
-      types: "lib/main.d.ts",
-      exports: {
-        ".": {
-          types: "./lib/main.d.ts",
-          require: "./lib/main.js",
-          default: "./lib/main.js"
-        },
-        "./config": "./config.js",
-        "./config.js": "./config.js",
-        "./lib/env-options": "./lib/env-options.js",
-        "./lib/env-options.js": "./lib/env-options.js",
-        "./lib/cli-options": "./lib/cli-options.js",
-        "./lib/cli-options.js": "./lib/cli-options.js",
-        "./package.json": "./package.json"
-      },
-      scripts: {
-        "dts-check": "tsc --project tests/types/tsconfig.json",
-        lint: "standard",
-        pretest: "npm run lint && npm run dts-check",
-        test: "tap run --allow-empty-coverage --disable-coverage --timeout=60000",
-        "test:coverage": "tap run --show-full-coverage --timeout=60000 --coverage-report=text --coverage-report=lcov",
-        prerelease: "npm test",
-        release: "standard-version"
-      },
-      repository: {
-        type: "git",
-        url: "git://github.com/motdotla/dotenv.git"
-      },
-      homepage: "https://github.com/motdotla/dotenv#readme",
-      funding: "https://dotenvx.com",
-      keywords: [
-        "dotenv",
-        "env",
-        ".env",
-        "environment",
-        "variables",
-        "config",
-        "settings"
-      ],
-      readmeFilename: "README.md",
-      license: "BSD-2-Clause",
-      devDependencies: {
-        "@types/node": "^18.11.3",
-        decache: "^4.6.2",
-        sinon: "^14.0.1",
-        standard: "^17.0.0",
-        "standard-version": "^9.5.0",
-        tap: "^19.2.0",
-        typescript: "^4.8.4"
-      },
-      engines: {
-        node: ">=12"
-      },
-      browser: {
-        fs: false
-      }
-    };
-  }
-});
-
-// ../../node_modules/.pnpm/dotenv@16.6.1/node_modules/dotenv/lib/main.js
-var require_main = __commonJS({
-  "../../node_modules/.pnpm/dotenv@16.6.1/node_modules/dotenv/lib/main.js"(exports, module) {
-    "use strict";
-    var fs = __require("fs");
-    var path = __require("path");
-    var os = __require("os");
-    var crypto = __require("crypto");
-    var packageJson = require_package();
-    var version = packageJson.version;
-    var LINE = /(?:^|^)\s*(?:export\s+)?([\w.-]+)(?:\s*=\s*?|:\s+?)(\s*'(?:\\'|[^'])*'|\s*"(?:\\"|[^"])*"|\s*`(?:\\`|[^`])*`|[^#\r\n]+)?\s*(?:#.*)?(?:$|$)/mg;
-    function parse(src) {
-      const obj = {};
-      let lines = src.toString();
-      lines = lines.replace(/\r\n?/mg, "\n");
-      let match;
-      while ((match = LINE.exec(lines)) != null) {
-        const key = match[1];
-        let value = match[2] || "";
-        value = value.trim();
-        const maybeQuote = value[0];
-        value = value.replace(/^(['"`])([\s\S]*)\1$/mg, "$2");
-        if (maybeQuote === '"') {
-          value = value.replace(/\\n/g, "\n");
-          value = value.replace(/\\r/g, "\r");
-        }
-        obj[key] = value;
-      }
-      return obj;
-    }
-    function _parseVault(options) {
-      options = options || {};
-      const vaultPath = _vaultPath(options);
-      options.path = vaultPath;
-      const result = DotenvModule.configDotenv(options);
-      if (!result.parsed) {
-        const err = new Error(`MISSING_DATA: Cannot parse ${vaultPath} for an unknown reason`);
-        err.code = "MISSING_DATA";
-        throw err;
-      }
-      const keys = _dotenvKey(options).split(",");
-      const length = keys.length;
-      let decrypted;
-      for (let i = 0; i < length; i++) {
-        try {
-          const key = keys[i].trim();
-          const attrs = _instructions(result, key);
-          decrypted = DotenvModule.decrypt(attrs.ciphertext, attrs.key);
-          break;
-        } catch (error) {
-          if (i + 1 >= length) {
-            throw error;
-          }
-        }
-      }
-      return DotenvModule.parse(decrypted);
-    }
-    function _warn(message) {
-      console.log(`[dotenv@${version}][WARN] ${message}`);
-    }
-    function _debug(message) {
-      console.log(`[dotenv@${version}][DEBUG] ${message}`);
-    }
-    function _log(message) {
-      console.log(`[dotenv@${version}] ${message}`);
-    }
-    function _dotenvKey(options) {
-      if (options && options.DOTENV_KEY && options.DOTENV_KEY.length > 0) {
-        return options.DOTENV_KEY;
-      }
-      if (process.env.DOTENV_KEY && process.env.DOTENV_KEY.length > 0) {
-        return process.env.DOTENV_KEY;
-      }
-      return "";
-    }
-    function _instructions(result, dotenvKey) {
-      let uri;
-      try {
-        uri = new URL(dotenvKey);
-      } catch (error) {
-        if (error.code === "ERR_INVALID_URL") {
-          const err = new Error("INVALID_DOTENV_KEY: Wrong format. Must be in valid uri format like dotenv://:key_1234@dotenvx.com/vault/.env.vault?environment=development");
-          err.code = "INVALID_DOTENV_KEY";
-          throw err;
-        }
-        throw error;
-      }
-      const key = uri.password;
-      if (!key) {
-        const err = new Error("INVALID_DOTENV_KEY: Missing key part");
-        err.code = "INVALID_DOTENV_KEY";
-        throw err;
-      }
-      const environment = uri.searchParams.get("environment");
-      if (!environment) {
-        const err = new Error("INVALID_DOTENV_KEY: Missing environment part");
-        err.code = "INVALID_DOTENV_KEY";
-        throw err;
-      }
-      const environmentKey = `DOTENV_VAULT_${environment.toUpperCase()}`;
-      const ciphertext = result.parsed[environmentKey];
-      if (!ciphertext) {
-        const err = new Error(`NOT_FOUND_DOTENV_ENVIRONMENT: Cannot locate environment ${environmentKey} in your .env.vault file.`);
-        err.code = "NOT_FOUND_DOTENV_ENVIRONMENT";
-        throw err;
-      }
-      return { ciphertext, key };
-    }
-    function _vaultPath(options) {
-      let possibleVaultPath = null;
-      if (options && options.path && options.path.length > 0) {
-        if (Array.isArray(options.path)) {
-          for (const filepath of options.path) {
-            if (fs.existsSync(filepath)) {
-              possibleVaultPath = filepath.endsWith(".vault") ? filepath : `${filepath}.vault`;
-            }
-          }
-        } else {
-          possibleVaultPath = options.path.endsWith(".vault") ? options.path : `${options.path}.vault`;
-        }
-      } else {
-        possibleVaultPath = path.resolve(process.cwd(), ".env.vault");
-      }
-      if (fs.existsSync(possibleVaultPath)) {
-        return possibleVaultPath;
-      }
-      return null;
-    }
-    function _resolveHome(envPath) {
-      return envPath[0] === "~" ? path.join(os.homedir(), envPath.slice(1)) : envPath;
-    }
-    function _configVault(options) {
-      const debug = Boolean(options && options.debug);
-      const quiet = options && "quiet" in options ? options.quiet : true;
-      if (debug || !quiet) {
-        _log("Loading env from encrypted .env.vault");
-      }
-      const parsed = DotenvModule._parseVault(options);
-      let processEnv = process.env;
-      if (options && options.processEnv != null) {
-        processEnv = options.processEnv;
-      }
-      DotenvModule.populate(processEnv, parsed, options);
-      return { parsed };
-    }
-    function configDotenv(options) {
-      const dotenvPath = path.resolve(process.cwd(), ".env");
-      let encoding = "utf8";
-      const debug = Boolean(options && options.debug);
-      const quiet = options && "quiet" in options ? options.quiet : true;
-      if (options && options.encoding) {
-        encoding = options.encoding;
-      } else {
-        if (debug) {
-          _debug("No encoding is specified. UTF-8 is used by default");
-        }
-      }
-      let optionPaths = [dotenvPath];
-      if (options && options.path) {
-        if (!Array.isArray(options.path)) {
-          optionPaths = [_resolveHome(options.path)];
-        } else {
-          optionPaths = [];
-          for (const filepath of options.path) {
-            optionPaths.push(_resolveHome(filepath));
-          }
-        }
-      }
-      let lastError;
-      const parsedAll = {};
-      for (const path2 of optionPaths) {
-        try {
-          const parsed = DotenvModule.parse(fs.readFileSync(path2, { encoding }));
-          DotenvModule.populate(parsedAll, parsed, options);
-        } catch (e) {
-          if (debug) {
-            _debug(`Failed to load ${path2} ${e.message}`);
-          }
-          lastError = e;
-        }
-      }
-      let processEnv = process.env;
-      if (options && options.processEnv != null) {
-        processEnv = options.processEnv;
-      }
-      DotenvModule.populate(processEnv, parsedAll, options);
-      if (debug || !quiet) {
-        const keysCount = Object.keys(parsedAll).length;
-        const shortPaths = [];
-        for (const filePath of optionPaths) {
-          try {
-            const relative = path.relative(process.cwd(), filePath);
-            shortPaths.push(relative);
-          } catch (e) {
-            if (debug) {
-              _debug(`Failed to load ${filePath} ${e.message}`);
-            }
-            lastError = e;
-          }
-        }
-        _log(`injecting env (${keysCount}) from ${shortPaths.join(",")}`);
-      }
-      if (lastError) {
-        return { parsed: parsedAll, error: lastError };
-      } else {
-        return { parsed: parsedAll };
-      }
-    }
-    function config(options) {
-      if (_dotenvKey(options).length === 0) {
-        return DotenvModule.configDotenv(options);
-      }
-      const vaultPath = _vaultPath(options);
-      if (!vaultPath) {
-        _warn(`You set DOTENV_KEY but you are missing a .env.vault file at ${vaultPath}. Did you forget to build it?`);
-        return DotenvModule.configDotenv(options);
-      }
-      return DotenvModule._configVault(options);
-    }
-    function decrypt(encrypted, keyStr) {
-      const key = Buffer.from(keyStr.slice(-64), "hex");
-      let ciphertext = Buffer.from(encrypted, "base64");
-      const nonce = ciphertext.subarray(0, 12);
-      const authTag = ciphertext.subarray(-16);
-      ciphertext = ciphertext.subarray(12, -16);
-      try {
-        const aesgcm = crypto.createDecipheriv("aes-256-gcm", key, nonce);
-        aesgcm.setAuthTag(authTag);
-        return `${aesgcm.update(ciphertext)}${aesgcm.final()}`;
-      } catch (error) {
-        const isRange = error instanceof RangeError;
-        const invalidKeyLength = error.message === "Invalid key length";
-        const decryptionFailed = error.message === "Unsupported state or unable to authenticate data";
-        if (isRange || invalidKeyLength) {
-          const err = new Error("INVALID_DOTENV_KEY: It must be 64 characters long (or more)");
-          err.code = "INVALID_DOTENV_KEY";
-          throw err;
-        } else if (decryptionFailed) {
-          const err = new Error("DECRYPTION_FAILED: Please check your DOTENV_KEY");
-          err.code = "DECRYPTION_FAILED";
-          throw err;
-        } else {
-          throw error;
-        }
-      }
-    }
-    function populate(processEnv, parsed, options = {}) {
-      const debug = Boolean(options && options.debug);
-      const override = Boolean(options && options.override);
-      if (typeof parsed !== "object") {
-        const err = new Error("OBJECT_REQUIRED: Please check the processEnv argument being passed to populate");
-        err.code = "OBJECT_REQUIRED";
-        throw err;
-      }
-      for (const key of Object.keys(parsed)) {
-        if (Object.prototype.hasOwnProperty.call(processEnv, key)) {
-          if (override === true) {
-            processEnv[key] = parsed[key];
-          }
-          if (debug) {
-            if (override === true) {
-              _debug(`"${key}" is already defined and WAS overwritten`);
-            } else {
-              _debug(`"${key}" is already defined and was NOT overwritten`);
-            }
-          }
-        } else {
-          processEnv[key] = parsed[key];
-        }
-      }
-    }
-    var DotenvModule = {
-      configDotenv,
-      _configVault,
-      _parseVault,
-      config,
-      decrypt,
-      parse,
-      populate
-    };
-    module.exports.configDotenv = DotenvModule.configDotenv;
-    module.exports._configVault = DotenvModule._configVault;
-    module.exports._parseVault = DotenvModule._parseVault;
-    module.exports.config = DotenvModule.config;
-    module.exports.decrypt = DotenvModule.decrypt;
-    module.exports.parse = DotenvModule.parse;
-    module.exports.populate = DotenvModule.populate;
-    module.exports = DotenvModule;
-  }
-});
-
 // ../../node_modules/.pnpm/commander@12.1.0/node_modules/commander/esm.mjs
 var import_index = __toESM(require_commander(), 1);
 var {
@@ -3417,7 +3058,6 @@ var {
 } = import_index.default;
 
 // src/config.ts
-var import_dotenv = __toESM(require_main(), 1);
 import { existsSync, readFileSync } from "fs";
 import { dirname, resolve } from "path";
 import { pathToFileURL } from "url";
@@ -7522,6 +7162,19 @@ var StepSchema = external_exports.discriminatedUnion("action", [
     selector: external_exports.string(),
     over: external_exports.number().min(0).default(800)
   }),
+  // --- highlighting / pointer (injected overlay; see config.overlay) ---
+  // Draw attention to an element. `style` overrides the config default; `label`
+  // adds a small caption. Stays until an `unhighlight` step or the beat ends.
+  external_exports.object({
+    action: external_exports.literal("highlight"),
+    selector: external_exports.string(),
+    style: external_exports.enum(["ring", "glow", "spotlight"]).optional(),
+    label: external_exports.string().optional()
+  }),
+  // Remove a specific highlight (by selector) or all of them (no selector).
+  external_exports.object({ action: external_exports.literal("unhighlight"), selector: external_exports.string().optional() }),
+  // Glide the synthetic cursor onto an element (no click).
+  external_exports.object({ action: external_exports.literal("point"), selector: external_exports.string() }),
   // --- convenience / escape hatch ---
   // Click a trigger, then a menu item by visible text (e.g. a theme dropdown).
   external_exports.object({ action: external_exports.literal("menu"), trigger: external_exports.string(), item: external_exports.string() }),
@@ -7533,6 +7186,15 @@ var BeatSchema = external_exports.object({
   say: external_exports.string(),
   /** Optional per-beat voice override (provider-specific id/name). */
   voice: external_exports.string().optional(),
+  /**
+   * Selector to highlight for this beat's whole duration (auto-cleared at the
+   * end). The natural way to spotlight the thing the narration is talking about.
+   */
+  focus: external_exports.string().optional(),
+  /** Override the highlight style for `focus` (else uses config.overlay.style). */
+  focusStyle: external_exports.enum(["ring", "glow", "spotlight"]).optional(),
+  /** Optional caption shown next to the focused element. */
+  focusLabel: external_exports.string().optional(),
   do: external_exports.array(StepSchema).default([])
 });
 var SceneSchema = external_exports.object({
@@ -7544,12 +7206,22 @@ var SceneSchema = external_exports.object({
 });
 var ConfigSchema = external_exports.object({
   tts: external_exports.object({
-    provider: external_exports.enum(["gemini", "elevenlabs", "os", "mock"]).default("gemini"),
+    // Default to the OS's built-in voice so a fresh install works with no key.
+    // Upgrade to a cloud voice (gemini/elevenlabs) via `narrate set-key`.
+    provider: external_exports.enum(["gemini", "elevenlabs", "os", "mock"]).default("os"),
     voice: external_exports.string().default("Kore"),
     model: external_exports.string().optional(),
-    /** Override the env var name the API key is read from. */
+    /** Override the env var name the API key is read from (env fallback only). */
     apiKeyEnv: external_exports.string().optional()
-  }).default({ provider: "gemini", voice: "Kore" }),
+  }).default({ provider: "os", voice: "Kore" }),
+  /**
+   * API keys, stored in this same file. `.narrate/` is gitignored, so they're
+   * never committed. The key for `tts.provider` is used; others may sit unused.
+   */
+  keys: external_exports.object({
+    gemini: external_exports.string().optional(),
+    elevenlabs: external_exports.string().optional()
+  }).default({}),
   output: external_exports.object({
     dir: external_exports.string().default("out"),
     width: external_exports.number().default(1440),
@@ -7558,23 +7230,41 @@ var ConfigSchema = external_exports.object({
     format: external_exports.enum(["mp4", "webm"]).default("mp4"),
     /** Encode quality (x264/vp9 CRF). Lower = higher quality/less banding. */
     crf: external_exports.number().default(16)
-  }).default({ dir: "out", width: 1440, height: 900, fps: 25, format: "mp4", crf: 16 })
+  }).default({ dir: "out", width: 1440, height: 900, fps: 25, format: "mp4", crf: 16 }),
+  /**
+   * On-screen overlays injected into the recorded page (never the real cursor).
+   * All on by default for a richer demo; flip any flag off to disable it.
+   */
+  overlay: external_exports.object({
+    /** Glide a synthetic cursor onto elements before click/hover/type. */
+    cursor: external_exports.boolean().default(true),
+    /** Enable element highlighting (`highlight` step + beat `focus`). */
+    highlight: external_exports.boolean().default(true),
+    /** Default highlight style when a step/beat doesn't specify one. */
+    style: external_exports.enum(["ring", "glow", "spotlight"]).default("ring"),
+    /** Accent color (CSS) for the cursor, ripple, and highlights. */
+    color: external_exports.string().default("#6366f1")
+  }).default({ cursor: true, highlight: true, style: "ring", color: "#6366f1" })
 });
 
 // src/config.ts
+var SETTINGS_FILE = "settings.local.json";
+function settingsPath(cwd) {
+  return resolve(cwd, ".narrate", SETTINGS_FILE);
+}
 var KEY_ENV = {
   gemini: "NARRATE_GEMINI_API_KEY",
   elevenlabs: "NARRATE_ELEVENLABS_API_KEY",
   os: null,
   mock: null
 };
-function loadEnv(cwd) {
-  for (const p of [resolve(cwd, ".narrate", ".env.narrate"), resolve(cwd, ".env.narrate")]) {
-    if (existsSync(p)) import_dotenv.default.config({ path: p });
-  }
-}
 function loadConfig(cwd, configPath) {
-  const candidates = configPath ? [resolve(cwd, configPath)] : [resolve(cwd, ".narrate", "narrate.config.json"), resolve(cwd, "narrate.config.json")];
+  const candidates = configPath ? [resolve(cwd, configPath)] : [
+    settingsPath(cwd),
+    // legacy locations, still honored so older projects keep working
+    resolve(cwd, ".narrate", "narrate.config.json"),
+    resolve(cwd, "narrate.config.json")
+  ];
   for (const p of candidates) {
     if (existsSync(p)) {
       return ConfigSchema.parse(JSON.parse(readFileSync(p, "utf8")));
@@ -7591,19 +7281,31 @@ function loadScene(cwd, scenePath) {
   }
   return scene;
 }
+function keyedProvider(config) {
+  const p = config.tts.provider;
+  return p === "gemini" || p === "elevenlabs" ? p : null;
+}
 function apiKeyEnvName(config) {
   return config.tts.apiKeyEnv ?? KEY_ENV[config.tts.provider];
 }
+function hasApiKey(config) {
+  const provider = keyedProvider(config);
+  if (!provider) return true;
+  if (config.keys[provider]?.trim()) return true;
+  const envName = apiKeyEnvName(config);
+  return Boolean(envName && process.env[envName]?.trim());
+}
 function resolveApiKey(config) {
-  const envName = config.tts.apiKeyEnv ?? KEY_ENV[config.tts.provider];
-  if (!envName) return "";
-  const key = process.env[envName]?.trim();
-  if (!key) {
-    throw new Error(
-      `Missing API key for provider "${config.tts.provider}". Set ${envName} in .env.narrate or your environment.`
-    );
-  }
-  return key;
+  const provider = keyedProvider(config);
+  if (!provider) return "";
+  const fromFile = config.keys[provider]?.trim();
+  if (fromFile) return fromFile;
+  const envName = apiKeyEnvName(config);
+  const fromEnv = envName ? process.env[envName]?.trim() : void 0;
+  if (fromEnv) return fromEnv;
+  throw new Error(
+    `Missing API key for provider "${config.tts.provider}". Add it under keys.${provider} in .narrate/${SETTINGS_FILE} (run \`narrate set-key ${provider} <key>\`)${envName ? ` or set ${envName}` : ""}.`
+  );
 }
 
 // src/pipeline.ts
@@ -7798,6 +7500,155 @@ async function setup(log = console.log) {
   log("Setup complete. A browser will be resolved on first render.");
 }
 
+// src/record/overlay.ts
+var OVERLAY_SCRIPT = String.raw`
+(() => {
+  if (window.__narrate) return;
+  var Z = 2147483600;
+  var NS = {};
+  var root, layer, cursor, started = false;
+  var highlights = new Map(); // selector -> { box, label, style }
+
+  function color() { return window.__NARRATE_COLOR || '#6366f1'; }
+
+  function ensure() {
+    if (root && document.documentElement.contains(root)) return;
+    root = document.createElement('div');
+    root.id = '__narrate_overlay';
+    root.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:' + Z + ';';
+    layer = document.createElement('div');
+    layer.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:1;';
+    cursor = document.createElement('div');
+    cursor.style.cssText =
+      'position:fixed;left:0;top:0;width:22px;height:22px;z-index:3;pointer-events:none;opacity:0;' +
+      'transform:translate(-9999px,-9999px);will-change:transform;' +
+      'transition:transform .45s cubic-bezier(.22,.61,.36,1),opacity .2s;' +
+      'filter:drop-shadow(0 1px 2px rgba(0,0,0,.45));';
+    cursor.innerHTML =
+      '<svg width="22" height="22" viewBox="0 0 24 24" fill="#fff" stroke="#000" stroke-width="1.2">' +
+      '<path d="M5 3l14 7-6 1.6L9.5 18 5 3z"/></svg>';
+    root.appendChild(layer);
+    root.appendChild(cursor);
+    (document.body || document.documentElement).appendChild(root);
+
+    if (!document.getElementById('__narrate_style')) {
+      var s = document.createElement('style');
+      s.id = '__narrate_style';
+      s.textContent =
+        '@keyframes __narrate_pulse{0%,100%{opacity:1}50%{opacity:.4}}' +
+        '@keyframes __narrate_ripple{0%{transform:translate(-50%,-50%) scale(.25);opacity:.55}' +
+        '100%{transform:translate(-50%,-50%) scale(1.5);opacity:0}}';
+      (document.head || document.documentElement).appendChild(s);
+    }
+    if (!started) { started = true; requestAnimationFrame(tick); }
+  }
+
+  function rectOf(sel) {
+    var el = document.querySelector(sel);
+    return el ? { el: el, r: el.getBoundingClientRect() } : null;
+  }
+
+  function tick() {
+    highlights.forEach(function (h, sel) {
+      var el = document.querySelector(sel);
+      if (!el) { h.box.style.opacity = '0'; if (h.label) h.label.style.opacity = '0'; return; }
+      var r = el.getBoundingClientRect();
+      var pad = h.style === 'spotlight' ? 0 : 6;
+      h.box.style.left = (r.left - pad) + 'px';
+      h.box.style.top = (r.top - pad) + 'px';
+      h.box.style.width = (r.width + pad * 2) + 'px';
+      h.box.style.height = (r.height + pad * 2) + 'px';
+      h.box.style.opacity = '1';
+      if (h.label) {
+        h.label.style.left = r.left + 'px';
+        h.label.style.top = Math.max(4, r.top - 30) + 'px';
+        h.label.style.opacity = '1';
+      }
+    });
+    requestAnimationFrame(tick);
+  }
+
+  function makeBox(style, c) {
+    var box = document.createElement('div');
+    var css = 'position:fixed;pointer-events:none;border-radius:10px;box-sizing:border-box;' +
+      'opacity:0;transition:left .25s ease,top .25s ease,width .25s ease,height .25s ease,opacity .2s;';
+    if (style === 'glow') {
+      css += 'box-shadow:0 0 0 3px ' + c + 'cc,0 0 26px 8px ' + c + '99;';
+    } else if (style === 'spotlight') {
+      css += 'box-shadow:0 0 0 4px ' + c + ',0 0 0 9999px rgba(0,0,0,.55);' +
+        'animation:__narrate_pulse 2.2s ease-in-out infinite;';
+    } else { // ring
+      css += 'border:3px solid ' + c + ';box-shadow:0 0 14px ' + c + '88;' +
+        'animation:__narrate_pulse 1.6s ease-in-out infinite;';
+    }
+    box.style.cssText = css;
+    return box;
+  }
+
+  NS.pointAt = function (sel, dur) {
+    ensure();
+    var hit = rectOf(sel);
+    if (!hit) return false;
+    var r = hit.r;
+    var x = r.left + Math.min(r.width / 2, 12);
+    var y = r.top + Math.min(r.height / 2, 12);
+    cursor.style.transition = 'transform ' + (dur || 450) + 'ms cubic-bezier(.22,.61,.36,1),opacity .2s';
+    cursor.style.opacity = '1';
+    cursor.style.transform = 'translate(' + x + 'px,' + y + 'px)';
+    NS._pos = { x: x, y: y };
+    return true;
+  };
+
+  NS.ripple = function (sel) {
+    ensure();
+    var x, y;
+    if (sel) { var hit = rectOf(sel); if (hit) { x = hit.r.left + Math.min(hit.r.width / 2, 12); y = hit.r.top + Math.min(hit.r.height / 2, 12); } }
+    if (x == null && NS._pos) { x = NS._pos.x; y = NS._pos.y; }
+    if (x == null) return;
+    var d = document.createElement('div');
+    d.style.cssText = 'position:fixed;left:' + x + 'px;top:' + y + 'px;width:38px;height:38px;' +
+      'border-radius:50%;background:' + color() + ';opacity:.5;pointer-events:none;z-index:2;' +
+      'animation:__narrate_ripple .5s ease-out forwards;';
+    layer.appendChild(d);
+    setTimeout(function () { d.remove(); }, 520);
+  };
+
+  NS.highlight = function (sel, opts) {
+    ensure();
+    opts = opts || {};
+    var style = opts.style || 'ring';
+    var c = color();
+    var prev = highlights.get(sel);
+    if (prev) { prev.box.remove(); if (prev.label) prev.label.remove(); }
+    var box = makeBox(style, c);
+    layer.appendChild(box);
+    var label = null;
+    if (opts.label) {
+      label = document.createElement('div');
+      label.textContent = opts.label;
+      label.style.cssText = 'position:fixed;pointer-events:none;z-index:4;background:' + c + ';color:#fff;' +
+        'font:600 13px/1.4 system-ui,-apple-system,sans-serif;padding:4px 10px;border-radius:6px;' +
+        'white-space:nowrap;opacity:0;box-shadow:0 2px 8px rgba(0,0,0,.3);transition:left .25s ease,top .25s ease,opacity .2s;';
+      layer.appendChild(label);
+    }
+    highlights.set(sel, { box: box, label: label, style: style });
+    return true;
+  };
+
+  NS.unhighlight = function (sel) {
+    if (sel) {
+      var h = highlights.get(sel);
+      if (h) { h.box.remove(); if (h.label) h.label.remove(); highlights.delete(sel); }
+    } else {
+      highlights.forEach(function (h) { h.box.remove(); if (h.label) h.label.remove(); });
+      highlights.clear();
+    }
+  };
+
+  window.__narrate = NS;
+})();
+`;
+
 // src/record/playwright.ts
 async function launchBrowser(chromium) {
   const attempts = [
@@ -7851,6 +7702,11 @@ var PlaywrightRecorder = class {
       // Sites with a manual toggle should drive it with a click/menu step instead.
       ...scene.theme ? { colorScheme: COLOR_SCHEME[scene.theme] } : {}
     });
+    const fx = this.config.overlay;
+    if (fx.cursor || fx.highlight) {
+      await context.addInitScript(`window.__NARRATE_COLOR=${JSON.stringify(fx.color)};`);
+      await context.addInitScript(OVERLAY_SCRIPT);
+    }
     const contextStart = Date.now();
     const page = await context.newPage();
     try {
@@ -7863,7 +7719,10 @@ var PlaywrightRecorder = class {
       for (const beat of scene.beats) {
         const durMs = Math.round((durations[beat.id] ?? 3) * 1e3);
         targetEnd += durMs;
-        for (const step of beat.do) await runStep(page, step);
+        if (fx.highlight && beat.focus) {
+          await applyHighlight(page, beat.focus, beat.focusStyle ?? fx.style, beat.focusLabel);
+        }
+        for (const step of beat.do) await runStep(page, step, fx);
         const remaining = targetEnd - (Date.now() - t0);
         if (remaining > 0) await page.waitForTimeout(remaining);
         else if (remaining < -150) {
@@ -7871,6 +7730,7 @@ var PlaywrightRecorder = class {
             `[narrate] beat "${beat.id}" visuals overran narration by ${-remaining}ms; shorten its steps or lengthen the narration.`
           );
         }
+        if (fx.highlight) await clearHighlight(page);
       }
       const video = page.video();
       await context.close();
@@ -7890,7 +7750,30 @@ async function settle(page) {
   await page.waitForLoadState("networkidle").catch(() => {
   });
 }
-async function runStep(page, step) {
+var POINT_MS = 450;
+async function pointTo(page, selector) {
+  const moved = await page.evaluate(
+    ([sel, dur]) => Boolean(window.__narrate?.pointAt(sel, dur)),
+    [selector, POINT_MS]
+  ).catch(() => false);
+  if (moved) await page.waitForTimeout(POINT_MS + 30);
+}
+async function ripple(page, selector) {
+  await page.evaluate((sel) => window.__narrate?.ripple(sel), selector ?? null).catch(() => {
+  });
+}
+async function applyHighlight(page, selector, style, label) {
+  await page.evaluate(
+    (o) => window.__narrate?.highlight(o.selector, { style: o.style, label: o.label }),
+    { selector, style, label }
+  ).catch(() => {
+  });
+}
+async function clearHighlight(page, selector) {
+  await page.evaluate((sel) => window.__narrate?.unhighlight(sel), selector ?? null).catch(() => {
+  });
+}
+async function runStep(page, step, fx) {
   switch (step.action) {
     // --- timing ---
     case "wait":
@@ -7921,24 +7804,32 @@ async function runStep(page, step) {
       return;
     // --- mouse ---
     case "click":
+      if (fx.cursor) await pointTo(page, step.selector);
       await page.click(step.selector);
+      if (fx.cursor) await ripple(page, step.selector);
       await settle(page);
       return;
     case "dblclick":
+      if (fx.cursor) await pointTo(page, step.selector);
       await page.dblclick(step.selector);
+      if (fx.cursor) await ripple(page, step.selector);
       await settle(page);
       return;
     case "hover":
+      if (fx.cursor) await pointTo(page, step.selector);
       await page.hover(step.selector);
       return;
     case "dragTo":
+      if (fx.cursor) await pointTo(page, step.from);
       await page.dragAndDrop(step.from, step.to);
       return;
     // --- keyboard / forms ---
     case "fill":
+      if (fx.cursor) await pointTo(page, step.selector);
       await page.fill(step.selector, step.text);
       return;
     case "type":
+      if (fx.cursor) await pointTo(page, step.selector);
       await page.locator(step.selector).pressSequentially(step.text, { delay: step.delay });
       return;
     case "clear":
@@ -7950,15 +7841,18 @@ async function runStep(page, step) {
       await settle(page);
       return;
     case "selectOption":
+      if (fx.cursor) await pointTo(page, step.selector);
       await page.selectOption(
         step.selector,
         step.label !== void 0 ? { label: step.label } : { value: step.value ?? "" }
       );
       return;
     case "check":
+      if (fx.cursor) await pointTo(page, step.selector);
       await page.check(step.selector);
       return;
     case "uncheck":
+      if (fx.cursor) await pointTo(page, step.selector);
       await page.uncheck(step.selector);
       return;
     case "focus":
@@ -7995,8 +7889,19 @@ async function runStep(page, step) {
       if (target !== null) await smoothScrollTo(page, Math.max(0, target), step.over);
       return;
     }
+    // --- highlighting / pointer ---
+    case "highlight":
+      if (fx.highlight) await applyHighlight(page, step.selector, step.style ?? fx.style, step.label);
+      return;
+    case "unhighlight":
+      if (fx.highlight) await clearHighlight(page, step.selector);
+      return;
+    case "point":
+      if (fx.cursor) await pointTo(page, step.selector);
+      return;
     // --- convenience / escape hatch ---
     case "menu":
+      if (fx.cursor) await pointTo(page, step.trigger);
       await page.click(step.trigger);
       await page.waitForTimeout(450);
       await page.getByRole("menuitem", { name: step.item }).click();
@@ -8250,7 +8155,11 @@ function makeProvider(config) {
     case "gemini":
       return new GeminiProvider(resolveApiKey(config), voice, model);
     case "elevenlabs":
-      return new ElevenLabsProvider(resolveApiKey(config), voice, model);
+      return new ElevenLabsProvider(
+        resolveApiKey(config),
+        voice === "Kore" ? void 0 : voice,
+        model
+      );
     case "os":
       return new OsTtsProvider();
     case "mock":
@@ -8339,15 +8248,13 @@ ${mux.stderr.trim().split("\n").slice(-12).join("\n")}`);
 // src/project.ts
 import { existsSync as existsSync3, mkdirSync as mkdirSync2, readFileSync as readFileSync3, writeFileSync as writeFileSync4 } from "fs";
 import { join as join5 } from "path";
-var ENV_TEMPLATE = `# Narrate API keys \u2014 this file lives in .narrate/ which is gitignored, so keys here
-# are never committed. Fill in the key for the provider you use.
-
-# Gemini (default provider) \u2014 get a free key at https://aistudio.google.com/apikey
-NARRATE_GEMINI_API_KEY=
-
-# ElevenLabs \u2014 also set tts.provider="elevenlabs" in narrate.config.json
-# NARRATE_ELEVENLABS_API_KEY=
-`;
+var ELEVENLABS_DEFAULT_VOICE = "21m00Tcm4TlvDq8ikWAM";
+function settingsTemplate() {
+  return {
+    $schema: "../narrate.schema.json",
+    ...ConfigSchema.parse({})
+  };
+}
 function ensureGitignore(cwd, entry) {
   const p = join5(cwd, ".gitignore");
   const existing = existsSync3(p) ? readFileSync3(p, "utf8") : "";
@@ -8359,23 +8266,39 @@ function ensureGitignore(cwd, entry) {
 function initProject(cwd, log = console.log) {
   const dir = join5(cwd, ".narrate");
   mkdirSync2(dir, { recursive: true });
-  const envPath = join5(dir, ".env.narrate");
-  if (existsSync3(envPath)) log(`exists: ${envPath}`);
-  else {
-    writeFileSync4(envPath, ENV_TEMPLATE);
-    log(`created: ${envPath}`);
-  }
-  const cfgPath = join5(dir, "narrate.config.json");
-  if (existsSync3(cfgPath)) log(`exists: ${cfgPath}`);
-  else {
-    writeFileSync4(cfgPath, `${JSON.stringify(ConfigSchema.parse({}), null, 2)}
+  const path = settingsPath(cwd);
+  let created = false;
+  if (existsSync3(path)) {
+    log(`exists: ${path}`);
+  } else {
+    writeFileSync4(path, `${JSON.stringify(settingsTemplate(), null, 2)}
 `);
-    log(`created: ${cfgPath}`);
+    created = true;
+    log(`created: ${path}`);
   }
   ensureGitignore(cwd, ".narrate/");
-  log(
-    "`.narrate/` is gitignored. Edit .narrate/.env.narrate (keys) and narrate.config.json (settings)."
-  );
+  log(`\`.narrate/\` is gitignored. Edit .narrate/${SETTINGS_FILE} (config + keys).`);
+  return { created, path };
+}
+function setKey(cwd, provider, key, log = console.log) {
+  const dir = join5(cwd, ".narrate");
+  mkdirSync2(dir, { recursive: true });
+  const path = settingsPath(cwd);
+  const raw = existsSync3(path) ? JSON.parse(readFileSync3(path, "utf8")) : settingsTemplate();
+  const tts = { ...raw.tts };
+  const keys = { ...raw.keys };
+  keys[provider] = key.trim();
+  tts.provider = provider;
+  if (provider === "elevenlabs" && (!tts.voice || tts.voice === "Kore")) {
+    tts.voice = ELEVENLABS_DEFAULT_VOICE;
+  }
+  raw.tts = tts;
+  raw.keys = keys;
+  writeFileSync4(path, `${JSON.stringify(raw, null, 2)}
+`);
+  ensureGitignore(cwd, ".narrate/");
+  log(`set keys.${provider} and tts.provider="${provider}" in ${path}`);
+  return path;
 }
 function checkEnv(config) {
   const lines = [];
@@ -8390,15 +8313,15 @@ function checkEnv(config) {
   lines.push(
     `config:  provider=${config.tts.provider}, voice=${config.tts.voice}, format=${config.output.format}, crf=${config.output.crf}`
   );
-  const envName = apiKeyEnvName(config);
-  if (!envName) {
-    lines.push(`TTS key: not required (provider "${config.tts.provider}")`);
-  } else if (process.env[envName]?.trim()) {
-    lines.push(`TTS key: OK (${envName} is set)`);
+  const provider = config.tts.provider;
+  if (provider === "os" || provider === "mock") {
+    lines.push(`TTS key: not required (provider "${provider}")`);
+  } else if (hasApiKey(config)) {
+    lines.push(`TTS key: OK (keys.${provider} set in .narrate/${SETTINGS_FILE})`);
   } else {
     ok = false;
     lines.push(
-      `TTS key: MISSING \u2014 set ${envName} in .narrate/.env.narrate (or use --provider os for the OS voice / --provider mock for silent)`
+      `TTS key: MISSING \u2014 add it under keys.${provider} in .narrate/${SETTINGS_FILE} (or run \`narrate set-key ${provider} <key>\`; or use --provider os for the OS voice / mock for silent)`
     );
   }
   lines.push(`RESULT:  ${ok ? "PASS" : "FAIL"}`);
@@ -8407,10 +8330,9 @@ function checkEnv(config) {
 
 // src/cli.ts
 var program2 = new Command();
-program2.name("narrate").description("Generate a narrated walkthrough video of a website.").version("0.15.0");
-program2.command("render").description("TTS \u2192 record \u2192 mux into one narrated video.").requiredOption("-s, --scene <file>", "scene JSON file").option("-c, --config <file>", "config file (default: narrate.config.json)").option("-o, --out <dir>", "output directory (overrides config output.dir)").option("--provider <name>", "override TTS provider (gemini|elevenlabs|os|mock)").option("--voice <name>", "override voice").action(async (o) => {
+program2.name("narrate").description("Generate a narrated walkthrough video of a website.").version("0.17.0");
+program2.command("render").description("TTS \u2192 record \u2192 mux into one narrated video.").requiredOption("-s, --scene <file>", "scene JSON file").option("-c, --config <file>", "config file (default: .narrate/settings.local.json)").option("-o, --out <dir>", "output directory (overrides config output.dir)").option("--provider <name>", "override TTS provider (gemini|elevenlabs|os|mock)").option("--voice <name>", "override voice").action(async (o) => {
   const cwd = process.cwd();
-  loadEnv(cwd);
   const config = loadConfig(cwd, o.config);
   if (o.provider) config.tts.provider = o.provider;
   if (o.voice) config.tts.voice = o.voice;
@@ -8420,12 +8342,17 @@ program2.command("render").description("TTS \u2192 record \u2192 mux into one na
   console.log(`
 \u2705 Done \u2192 ${out}`);
 });
-program2.command("init").description("Scaffold .narrate/ (key template + config) in the current project.").action(() => {
+program2.command("init").description("Scaffold .narrate/settings.local.json (config + keys) in the current project.").action(() => {
   initProject(process.cwd(), (m) => console.log(m));
 });
-program2.command("check").description("Validate the environment (ffmpeg, config, TTS key). Exits non-zero if not ready.").option("-c, --config <file>", "config file (default: narrate.config.json)").action((o) => {
+program2.command("set-key").description("Save an API key into .narrate/settings.local.json and switch to that provider.").argument("<provider>", "gemini | elevenlabs").argument("<key>", "the API key").action((provider, key) => {
+  if (provider !== "gemini" && provider !== "elevenlabs") {
+    throw new Error(`Unknown provider "${provider}" (expected gemini or elevenlabs).`);
+  }
+  setKey(process.cwd(), provider, key, (m) => console.log(m));
+});
+program2.command("check").description("Validate the environment (ffmpeg, config, TTS key). Exits non-zero if not ready.").option("-c, --config <file>", "config file (default: .narrate/settings.local.json)").action((o) => {
   const cwd = process.cwd();
-  loadEnv(cwd);
   const result = checkEnv(loadConfig(cwd, o.config));
   for (const line of result.lines) console.log(line);
   if (!result.ok) process.exit(1);

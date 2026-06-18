@@ -25,21 +25,19 @@ node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" <command> …
 
 (In the source monorepo you can instead use `pnpm narrate …`.)
 
-Commands: `init` (scaffold `.narrate/` config + key template), `check` (validate
-ffmpeg + config + key; exit 0/1), `render --scene <file> [--out <dir>] [--provider <p>]
-[--voice <v>]`, and `setup` (force-install Playwright + Chromium; normally automatic).
+Commands: `init` (scaffold `.narrate/settings.local.json` — config + keys),
+`check` (validate ffmpeg + config; exit 0/1), `render --scene <file> [--out <dir>]
+[--provider <p>] [--voice <v>]`, and `setup` (force-install Playwright + Chromium;
+normally automatic). TTS provider/key onboarding lives in the **`/narrate-setup`** skill.
 
 ## Prerequisites
 
 - **ffmpeg + ffprobe** on PATH (`ffmpeg -version`) — the only manual dependency.
   Playwright + Chromium are auto-provisioned on the first render.
 - The **target app running** and reachable at the scene's `site` URL.
-- A **TTS API key** as `NARRATE_<PROVIDER>_API_KEY`. The engine reads it from
-  `.narrate/.env.narrate` (preferred), `.env.narrate`, or the environment. No key?
-  Warn the user and offer to add one — save it to `.narrate/.env.narrate` (that dir
-  is gitignored, so the key is never committed). If they decline, use `--provider os`
-  (the OS's built-in voice — no key; Windows/macOS work, Linux needs `espeak`).
-  `--provider mock` is silent. Per-run settings can also live in `.narrate/narrate.config.json`.
+- **TTS works out of the box** with the OS voice (no key). For higher-quality
+  cloud narration, the user can run **`/narrate-setup`** to add a Gemini/ElevenLabs
+  key (stored in the gitignored `.narrate/settings.local.json`); it's optional.
 
 ## Workflow (from a plain-English request)
 
@@ -48,12 +46,13 @@ ffmpeg + config + key; exit 0/1), `render --scene <file> [--out <dir>] [--provid
    node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" init
    node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" check
    ```
-   `init` writes `./.narrate/.env.narrate` + `narrate.config.json` (gitignored);
-   `check` validates ffmpeg + config + key and prints `RESULT: PASS|FAIL`. On
-   **ffmpeg MISSING** → give install instructions and stop. On **TTS key MISSING** →
-   tell the user to set `NARRATE_GEMINI_API_KEY=…` in `./.narrate/.env.narrate`,
-   **wait for them to confirm**, re-run `check` (or use `--provider os`/`mock` if they
-   decline). On **PASS** → continue.
+   `init` creates `./.narrate/settings.local.json` (config + keys, gitignored,
+   defaulting to the OS voice) the first time; `check` validates ffmpeg + config and
+   prints `RESULT: PASS|FAIL`. Act on it:
+   - **ffmpeg MISSING** → give install instructions and stop (the one hard dependency).
+   - **PASS** → continue. Don't block on a key: with defaults narration uses the OS
+     voice. If `check` shows `provider=os` and the user wants studio-quality narration,
+     mention they can run **`/narrate-setup`** first (optional), then proceed either way.
 2. **Investigate** the repo: `package.json` dev/start script, framework, URL/port,
    required env/seed. Identify the pages + **real selectors** for the requested
    flow (read component source, or use the Playwright MCP to snapshot the live
@@ -61,7 +60,10 @@ ffmpeg + config + key; exit 0/1), `render --scene <file> [--out <dir>] [--provid
 3. **Run the app** if needed — start the dev server in the background, wait until
    the URL responds, and remember to stop it afterward.
 4. **Author a scene** at `./.narrate/tmp/<slug>.scene.json` (format below). Use any
-   credentials/data the user gave; treat signup/email flows as test-only.
+   credentials/data the user gave; treat signup/email flows as test-only. When a
+   beat's narration calls out a specific element or section, set that beat's
+   **`focus`** selector (and/or use `highlight` steps) so the video visibly points
+   at it as it's described.
 5. **Render** to the temp dir:
    ```bash
    node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" render \
@@ -69,12 +71,12 @@ ffmpeg + config + key; exit 0/1), `render --scene <file> [--out <dir>] [--provid
    ```
 6. **Deliver**: copy `./.narrate/tmp/<slug>.mp4` → `./docs/<slug>.mp4`, ensure
    `.narrate/` is in the project `.gitignore`, and stop the dev server.
-7. **Report audio + keep temp.** Read `./.narrate/tmp/narrate.log` and quote its
-   **"Final audio"** line (stream present? mean volume in dB). Do **not** auto-delete
-   `./.narrate/tmp` — it holds the per-beat `audio/`, combined `narration.wav`, raw
-   `video/`, scene JSON, the muxed mp4, and `narrate.log`. If the video seems silent,
-   ask the user to paste `narrate.log`. Report the final `./docs/<slug>.mp4`, then ask
-   **"Remove the temp files now? (y/n)"** and delete `./.narrate/tmp` only if yes.
+7. **Report audio, then clean up.** Read `./.narrate/tmp/narrate.log` and quote its
+   **"Final audio"** line (stream present? mean volume in dB) so the user can verify
+   the muxed audio is real. If it reports the stream MISSING or silent, surface that
+   and keep `./.narrate/tmp` for debugging; otherwise **delete `./.narrate/tmp`**
+   automatically — the deliverable lives at `./docs/<slug>.mp4`. Report that path.
+   (Note: VS Code's built-in preview can't decode the audio — verify in VLC or a browser.)
 
 ## Scene format
 
@@ -89,11 +91,19 @@ ffmpeg + config + key; exit 0/1), `render --scene <file> [--out <dir>] [--provid
       "id": "intro",
       "say": "Spoken narration for this beat.",
       "voice": "Kore",                     // optional per-beat voice override
+      "focus": "#hero",                    // optional: highlight this element for the whole beat
+      "focusStyle": "ring",                // optional: ring | glow | spotlight (default from config)
+      "focusLabel": "Welcome",             // optional: caption next to it
       "do": [ { "action": "wait", "ms": 800 } ]
     }
   ]
 }
 ```
+
+Use `focus` to spotlight whatever the narration is talking about — it highlights
+for the beat's whole duration and clears automatically. The synthetic cursor and
+highlights are injected into the page (never the OS cursor) and are on by default;
+they're configurable under `overlay` in settings.
 
 Add `"$schema": "../narrate.scene.schema.json"` for editor autocomplete when a
 schema file is nearby (the engine ignores unknown keys).
@@ -132,6 +142,11 @@ Selectors are real Playwright selectors. Steps run in order within a beat.
 - `{ "action": "scrollThrough", "selector": "article", "over": 7000 }` — selector optional (whole page)
 - `{ "action": "scrollIntoView", "selector": "#section", "over": 800 }`
 
+**Highlighting / pointer** (injected overlay — never the OS cursor; on by default)
+- `{ "action": "highlight", "selector": ".cta", "style": "ring", "label": "Start here" }` — `style`: `ring`|`glow`|`spotlight`; stays until `unhighlight` or the beat ends
+- `{ "action": "unhighlight", "selector": ".cta" }` — omit `selector` to clear all
+- `{ "action": "point", "selector": "role=button[name=Save]" }` — glide the cursor (no click). Clicks/hover/type already auto-glide the cursor.
+
 **Convenience / escape hatch**
 - `{ "action": "menu", "trigger": "role=button[name=\"Toggle theme\"]", "item": "Light" }` — click trigger, then a `menuitem` by text
 - `{ "action": "eval", "fn": "document.body.classList.add('x')" }` — arbitrary in-page async JS; last resort
@@ -140,9 +155,10 @@ Selectors are real Playwright selectors. Steps run in order within a beat.
 
 - **Pacing:** a beat is held for exactly its narration length. If its `do` steps
   run longer, the engine warns — split the beat or lengthen the narration.
-- **Config:** `narrate.config.json` sets provider/voice/output (default Gemini +
-  "Kore"). Override per-run with `--provider` / `--voice`. For ElevenLabs: set
-  `tts.provider: "elevenlabs"`, a voice id in `tts.voice`, and `NARRATE_ELEVENLABS_API_KEY`.
+- **Config:** `.narrate/settings.local.json` holds provider/voice/output **and**
+  the API keys (`keys.gemini` / `keys.elevenlabs`); default is the OS voice (no key).
+  Override per-run with `--provider` / `--voice`. To switch to a cloud voice, run
+  **`/narrate-setup`** (or `narrate set-key <provider> <key>`).
 - **Theme:** the optional scene-level `theme` emulates the browser's
   `prefers-color-scheme` (the standard OS/browser color-scheme signal), so it
   works for any site that honors that media query. Apps with a *manual* toggle

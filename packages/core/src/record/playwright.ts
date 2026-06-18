@@ -1,8 +1,25 @@
 import { join } from "node:path";
 import type { Browser, BrowserType, Page } from "playwright";
 import { installChromium } from "../setup.js";
-import type { Config, Durations, Scene, Step } from "../types.js";
+import type { Config, Durations, OverlayConfig, Scene, Step } from "../types.js";
+import { OVERLAY_SCRIPT } from "./overlay.js";
 import type { RecordResult, Recorder } from "./recorder.js";
+
+/** Shape of the in-page overlay API injected by OVERLAY_SCRIPT. */
+interface NarrateOverlay {
+  pointAt(selector: string, durMs: number): boolean;
+  ripple(selector?: string | null): void;
+  highlight(selector: string, opts: { style?: string; label?: string }): boolean;
+  unhighlight(selector?: string | null): void;
+}
+declare global {
+  interface Window {
+    __narrate?: NarrateOverlay;
+    __NARRATE_COLOR?: string;
+  }
+}
+
+type HighlightStyle = "ring" | "glow" | "spotlight";
 
 /**
  * Load Playwright lazily so the bundled CLI can run TTS-only paths (and `narrate
@@ -70,6 +87,14 @@ export class PlaywrightRecorder implements Recorder {
       // Sites with a manual toggle should drive it with a click/menu step instead.
       ...(scene.theme ? { colorScheme: COLOR_SCHEME[scene.theme] } : {}),
     });
+    // Inject the synthetic-cursor + highlight overlay (if either is enabled) so
+    // it's present on every page/navigation. It's inert until the steps call it.
+    const fx = this.config.overlay;
+    if (fx.cursor || fx.highlight) {
+      await context.addInitScript(`window.__NARRATE_COLOR=${JSON.stringify(fx.color)};`);
+      await context.addInitScript(OVERLAY_SCRIPT);
+    }
+
     const contextStart = Date.now();
     const page = await context.newPage();
 
@@ -86,7 +111,11 @@ export class PlaywrightRecorder implements Recorder {
       for (const beat of scene.beats) {
         const durMs = Math.round((durations[beat.id] ?? 3) * 1000);
         targetEnd += durMs;
-        for (const step of beat.do) await runStep(page, step);
+        // Spotlight the beat's focus element for its whole duration.
+        if (fx.highlight && beat.focus) {
+          await applyHighlight(page, beat.focus, beat.focusStyle ?? fx.style, beat.focusLabel);
+        }
+        for (const step of beat.do) await runStep(page, step, fx);
         // Pad (or warn) so the beat ends exactly on the audio boundary.
         const remaining = targetEnd - (Date.now() - t0);
         if (remaining > 0) await page.waitForTimeout(remaining);
@@ -96,6 +125,8 @@ export class PlaywrightRecorder implements Recorder {
             `[narrate] beat "${beat.id}" visuals overran narration by ${-remaining}ms; shorten its steps or lengthen the narration.`,
           );
         }
+        // Clear everything between beats for a predictable, clean slate.
+        if (fx.highlight) await clearHighlight(page);
       }
 
       const video = page.video();
@@ -120,7 +151,49 @@ async function settle(page: Page): Promise<void> {
   await page.waitForLoadState("networkidle").catch(() => {});
 }
 
-async function runStep(page: Page, step: Step): Promise<void> {
+// --- overlay drivers (call the injected window.__narrate API) -----------------
+
+const POINT_MS = 450; // synthetic-cursor glide duration
+
+/** Glide the synthetic cursor onto a selector and wait for the animation. */
+async function pointTo(page: Page, selector: string): Promise<void> {
+  const moved = await page
+    .evaluate(([sel, dur]) => Boolean(window.__narrate?.pointAt(sel as string, dur as number)), [
+      selector,
+      POINT_MS,
+    ] as const)
+    .catch(() => false);
+  if (moved) await page.waitForTimeout(POINT_MS + 30);
+}
+
+/** Emit a click ripple at a selector (or the cursor's last position). */
+async function ripple(page: Page, selector?: string): Promise<void> {
+  await page.evaluate((sel) => window.__narrate?.ripple(sel), selector ?? null).catch(() => {});
+}
+
+async function applyHighlight(
+  page: Page,
+  selector: string,
+  style: HighlightStyle,
+  label?: string,
+): Promise<void> {
+  await page
+    .evaluate((o) => window.__narrate?.highlight(o.selector, { style: o.style, label: o.label }), {
+      selector,
+      style,
+      label,
+    })
+    .catch(() => {});
+}
+
+/** Clear one highlight (by selector) or all of them. */
+async function clearHighlight(page: Page, selector?: string): Promise<void> {
+  await page
+    .evaluate((sel) => window.__narrate?.unhighlight(sel), selector ?? null)
+    .catch(() => {});
+}
+
+async function runStep(page: Page, step: Step, fx: OverlayConfig): Promise<void> {
   switch (step.action) {
     // --- timing ---
     case "wait":
@@ -151,25 +224,33 @@ async function runStep(page: Page, step: Step): Promise<void> {
 
     // --- mouse ---
     case "click":
+      if (fx.cursor) await pointTo(page, step.selector);
       await page.click(step.selector);
+      if (fx.cursor) await ripple(page, step.selector);
       await settle(page);
       return;
     case "dblclick":
+      if (fx.cursor) await pointTo(page, step.selector);
       await page.dblclick(step.selector);
+      if (fx.cursor) await ripple(page, step.selector);
       await settle(page);
       return;
     case "hover":
+      if (fx.cursor) await pointTo(page, step.selector);
       await page.hover(step.selector);
       return;
     case "dragTo":
+      if (fx.cursor) await pointTo(page, step.from);
       await page.dragAndDrop(step.from, step.to);
       return;
 
     // --- keyboard / forms ---
     case "fill":
+      if (fx.cursor) await pointTo(page, step.selector);
       await page.fill(step.selector, step.text);
       return;
     case "type":
+      if (fx.cursor) await pointTo(page, step.selector);
       await page.locator(step.selector).pressSequentially(step.text, { delay: step.delay });
       return;
     case "clear":
@@ -181,15 +262,18 @@ async function runStep(page: Page, step: Step): Promise<void> {
       await settle(page);
       return;
     case "selectOption":
+      if (fx.cursor) await pointTo(page, step.selector);
       await page.selectOption(
         step.selector,
         step.label !== undefined ? { label: step.label } : { value: step.value ?? "" },
       );
       return;
     case "check":
+      if (fx.cursor) await pointTo(page, step.selector);
       await page.check(step.selector);
       return;
     case "uncheck":
+      if (fx.cursor) await pointTo(page, step.selector);
       await page.uncheck(step.selector);
       return;
     case "focus":
@@ -228,8 +312,21 @@ async function runStep(page: Page, step: Step): Promise<void> {
       return;
     }
 
+    // --- highlighting / pointer ---
+    case "highlight":
+      if (fx.highlight)
+        await applyHighlight(page, step.selector, step.style ?? fx.style, step.label);
+      return;
+    case "unhighlight":
+      if (fx.highlight) await clearHighlight(page, step.selector);
+      return;
+    case "point":
+      if (fx.cursor) await pointTo(page, step.selector);
+      return;
+
     // --- convenience / escape hatch ---
     case "menu":
+      if (fx.cursor) await pointTo(page, step.trigger);
       await page.click(step.trigger);
       await page.waitForTimeout(450);
       await page.getByRole("menuitem", { name: step.item }).click();

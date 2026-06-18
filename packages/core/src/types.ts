@@ -67,6 +67,20 @@ export const StepSchema = z.discriminatedUnion("action", [
     over: z.number().min(0).default(800),
   }),
 
+  // --- highlighting / pointer (injected overlay; see config.overlay) ---
+  // Draw attention to an element. `style` overrides the config default; `label`
+  // adds a small caption. Stays until an `unhighlight` step or the beat ends.
+  z.object({
+    action: z.literal("highlight"),
+    selector: z.string(),
+    style: z.enum(["ring", "glow", "spotlight"]).optional(),
+    label: z.string().optional(),
+  }),
+  // Remove a specific highlight (by selector) or all of them (no selector).
+  z.object({ action: z.literal("unhighlight"), selector: z.string().optional() }),
+  // Glide the synthetic cursor onto an element (no click).
+  z.object({ action: z.literal("point"), selector: z.string() }),
+
   // --- convenience / escape hatch ---
   // Click a trigger, then a menu item by visible text (e.g. a theme dropdown).
   z.object({ action: z.literal("menu"), trigger: z.string(), item: z.string() }),
@@ -81,6 +95,15 @@ export const BeatSchema = z.object({
   say: z.string(),
   /** Optional per-beat voice override (provider-specific id/name). */
   voice: z.string().optional(),
+  /**
+   * Selector to highlight for this beat's whole duration (auto-cleared at the
+   * end). The natural way to spotlight the thing the narration is talking about.
+   */
+  focus: z.string().optional(),
+  /** Override the highlight style for `focus` (else uses config.overlay.style). */
+  focusStyle: z.enum(["ring", "glow", "spotlight"]).optional(),
+  /** Optional caption shown next to the focused element. */
+  focusLabel: z.string().optional(),
   do: z.array(StepSchema).default([]),
 });
 export type Beat = z.infer<typeof BeatSchema>;
@@ -100,13 +123,25 @@ export type Scene = z.infer<typeof SceneSchema>;
 export const ConfigSchema = z.object({
   tts: z
     .object({
-      provider: z.enum(["gemini", "elevenlabs", "os", "mock"]).default("gemini"),
+      // Default to the OS's built-in voice so a fresh install works with no key.
+      // Upgrade to a cloud voice (gemini/elevenlabs) via `narrate set-key`.
+      provider: z.enum(["gemini", "elevenlabs", "os", "mock"]).default("os"),
       voice: z.string().default("Kore"),
       model: z.string().optional(),
-      /** Override the env var name the API key is read from. */
+      /** Override the env var name the API key is read from (env fallback only). */
       apiKeyEnv: z.string().optional(),
     })
-    .default({ provider: "gemini", voice: "Kore" }),
+    .default({ provider: "os", voice: "Kore" }),
+  /**
+   * API keys, stored in this same file. `.narrate/` is gitignored, so they're
+   * never committed. The key for `tts.provider` is used; others may sit unused.
+   */
+  keys: z
+    .object({
+      gemini: z.string().optional(),
+      elevenlabs: z.string().optional(),
+    })
+    .default({}),
   output: z
     .object({
       dir: z.string().default("out"),
@@ -118,7 +153,24 @@ export const ConfigSchema = z.object({
       crf: z.number().default(16),
     })
     .default({ dir: "out", width: 1440, height: 900, fps: 25, format: "mp4", crf: 16 }),
+  /**
+   * On-screen overlays injected into the recorded page (never the real cursor).
+   * All on by default for a richer demo; flip any flag off to disable it.
+   */
+  overlay: z
+    .object({
+      /** Glide a synthetic cursor onto elements before click/hover/type. */
+      cursor: z.boolean().default(true),
+      /** Enable element highlighting (`highlight` step + beat `focus`). */
+      highlight: z.boolean().default(true),
+      /** Default highlight style when a step/beat doesn't specify one. */
+      style: z.enum(["ring", "glow", "spotlight"]).default("ring"),
+      /** Accent color (CSS) for the cursor, ripple, and highlights. */
+      color: z.string().default("#6366f1"),
+    })
+    .default({ cursor: true, highlight: true, style: "ring", color: "#6366f1" }),
 });
 export type Config = z.infer<typeof ConfigSchema>;
+export type OverlayConfig = Config["overlay"];
 
 export type Durations = Record<string, number>; // beatId -> seconds

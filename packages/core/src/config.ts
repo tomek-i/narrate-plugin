@@ -1,10 +1,18 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import dotenv from "dotenv";
 import { type Config, ConfigSchema, type Scene, SceneSchema } from "./types.js";
 
-/** Default env var per provider; overridable via config.tts.apiKeyEnv. */
+/** The single project config file. Lives in `.narrate/` (gitignored). */
+export const SETTINGS_FILE = "settings.local.json";
+
+/** Absolute path to the project's settings file. */
+export function settingsPath(cwd: string): string {
+  return resolve(cwd, ".narrate", SETTINGS_FILE);
+}
+
+/** Default env var per provider — used only as a fallback when no key is in the
+ *  settings file (handy for CI). Overridable via config.tts.apiKeyEnv. */
 const KEY_ENV: Record<string, string | null> = {
   gemini: "NARRATE_GEMINI_API_KEY",
   elevenlabs: "NARRATE_ELEVENLABS_API_KEY",
@@ -12,21 +20,15 @@ const KEY_ENV: Record<string, string | null> = {
   mock: null,
 };
 
-/**
- * Load env from `.narrate/.env.narrate` (preferred — the `.narrate/` dir is
- * gitignored, so keys stored there are never committed) then `.env.narrate` in
- * the working dir. dotenv won't overwrite already-set vars, so the first wins.
- */
-export function loadEnv(cwd: string): void {
-  for (const p of [resolve(cwd, ".narrate", ".env.narrate"), resolve(cwd, ".env.narrate")]) {
-    if (existsSync(p)) dotenv.config({ path: p });
-  }
-}
-
 export function loadConfig(cwd: string, configPath?: string): Config {
   const candidates = configPath
     ? [resolve(cwd, configPath)]
-    : [resolve(cwd, ".narrate", "narrate.config.json"), resolve(cwd, "narrate.config.json")];
+    : [
+        settingsPath(cwd),
+        // legacy locations, still honored so older projects keep working
+        resolve(cwd, ".narrate", "narrate.config.json"),
+        resolve(cwd, "narrate.config.json"),
+      ];
   for (const p of candidates) {
     if (existsSync(p)) {
       // zod strips unknown keys, so an editor-only `$schema` is dropped here.
@@ -49,21 +51,40 @@ export function loadScene(cwd: string, scenePath: string): Scene {
   return scene;
 }
 
-/** The env var the provider's API key is read from, or null if none is needed. */
+/** Provider keys that live in the config file (vs. os/mock which need none). */
+type KeyedProvider = keyof Config["keys"];
+function keyedProvider(config: Config): KeyedProvider | null {
+  const p = config.tts.provider;
+  return p === "gemini" || p === "elevenlabs" ? p : null;
+}
+
+/** The fallback env var the provider's key is read from, or null if none. */
 export function apiKeyEnvName(config: Config): string | null {
   return config.tts.apiKeyEnv ?? KEY_ENV[config.tts.provider];
 }
 
-/** Resolve the API key for the configured provider, with a clear error if missing. */
+/** Whether a usable key is available for the configured provider (file or env). */
+export function hasApiKey(config: Config): boolean {
+  const provider = keyedProvider(config);
+  if (!provider) return true; // os/mock need no key
+  if (config.keys[provider]?.trim()) return true;
+  const envName = apiKeyEnvName(config);
+  return Boolean(envName && process.env[envName]?.trim());
+}
+
+/** Resolve the API key for the configured provider, with a clear error if missing.
+ *  Precedence: the key in `.narrate/settings.local.json`, then the env fallback. */
 export function resolveApiKey(config: Config): string {
-  const envName = config.tts.apiKeyEnv ?? KEY_ENV[config.tts.provider];
-  if (!envName) return ""; // e.g. mock provider
-  const key = process.env[envName]?.trim();
-  if (!key) {
-    throw new Error(
-      `Missing API key for provider "${config.tts.provider}". ` +
-        `Set ${envName} in .env.narrate or your environment.`,
-    );
-  }
-  return key;
+  const provider = keyedProvider(config);
+  if (!provider) return ""; // os/mock
+  const fromFile = config.keys[provider]?.trim();
+  if (fromFile) return fromFile;
+  const envName = apiKeyEnvName(config);
+  const fromEnv = envName ? process.env[envName]?.trim() : undefined;
+  if (fromEnv) return fromEnv;
+  throw new Error(
+    `Missing API key for provider "${config.tts.provider}". ` +
+      `Add it under keys.${provider} in .narrate/${SETTINGS_FILE} ` +
+      `(run \`narrate set-key ${provider} <key>\`)${envName ? ` or set ${envName}` : ""}.`,
+  );
 }

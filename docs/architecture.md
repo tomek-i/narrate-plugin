@@ -46,10 +46,10 @@ narrate/
 ├── .claude-plugin/marketplace.json   # plugin marketplace (this repo)
 ├── packages/
 │   ├── core/      # @narrate/core — engine + `narrate` CLI + tests
-│   └── plugin/    # Claude Code plugin: /narrate-video + /narrate-demo skills, bundled bin/
+│   └── plugin/    # Claude Code plugin: /narrate-video + /narrate-demo + /narrate-setup skills, bundled bin/
 ├── scenes/        # example scene(s)
 ├── docs/          # this documentation
-└── narrate.{config,scene}.schema.json   # generated from the zod schemas
+└── narrate.schema.json, narrate.scene.schema.json   # generated from the zod schemas
 ```
 
 Planned features and their rationale live in [roadmap.md](./roadmap.md).

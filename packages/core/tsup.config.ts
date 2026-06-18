@@ -18,7 +18,7 @@ export default defineConfig([
     outDir: "../plugin/bin",
     // Inline only the light deps; playwright (+ its transitive native bits)
     // stays external and is installed by `narrate setup`.
-    noExternal: ["commander", "zod", "dotenv"],
+    noExternal: ["commander", "zod"],
     // commander is CJS and uses require(); define require under ESM so esbuild's
     // __require shim resolves node built-ins instead of throwing.
     banner: {

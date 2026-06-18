@@ -1,18 +1,19 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { apiKeyEnvName } from "./config.js";
+import { SETTINGS_FILE, hasApiKey, settingsPath } from "./config.js";
 import { ensureFfmpeg } from "./mux/ffmpeg.js";
 import { type Config, ConfigSchema } from "./types.js";
 
-const ENV_TEMPLATE = `# Narrate API keys — this file lives in .narrate/ which is gitignored, so keys here
-# are never committed. Fill in the key for the provider you use.
+/** ElevenLabs uses voice *ids*, so this Gemini-named default doesn't apply. */
+const ELEVENLABS_DEFAULT_VOICE = "21m00Tcm4TlvDq8ikWAM"; // "Rachel" (public)
 
-# Gemini (default provider) — get a free key at https://aistudio.google.com/apikey
-NARRATE_GEMINI_API_KEY=
-
-# ElevenLabs — also set tts.provider="elevenlabs" in narrate.config.json
-# NARRATE_ELEVENLABS_API_KEY=
-`;
+/** The on-disk shape of settings.local.json (config + an editor `$schema`). */
+function settingsTemplate(): Record<string, unknown> {
+  return {
+    $schema: "../narrate.schema.json",
+    ...ConfigSchema.parse({}),
+  };
+}
 
 /** Append a line to (or create) the project .gitignore if it's not already there. */
 function ensureGitignore(cwd: string, entry: string): void {
@@ -23,33 +24,71 @@ function ensureGitignore(cwd: string, entry: string): void {
   writeFileSync(p, `${existing}${prefix}${entry}\n`);
 }
 
+export interface InitResult {
+  /** True if settings.local.json was just created (→ run onboarding). */
+  created: boolean;
+  path: string;
+}
+
 /**
- * Scaffold `.narrate/` in the project: an `.env.narrate` key template and a
- * `narrate.config.json` with current defaults, and make sure `.narrate/` is
- * gitignored. Idempotent — never overwrites existing files.
+ * Scaffold `.narrate/settings.local.json` (config + API keys in one file) and
+ * make sure `.narrate/` is gitignored. Idempotent — never overwrites an existing
+ * file. `created` tells the caller whether this is a first-time setup so it can
+ * run onboarding; on later runs the file exists and onboarding is skipped.
  */
-export function initProject(cwd: string, log: (msg: string) => void = console.log): void {
+export function initProject(cwd: string, log: (msg: string) => void = console.log): InitResult {
   const dir = join(cwd, ".narrate");
   mkdirSync(dir, { recursive: true });
 
-  const envPath = join(dir, ".env.narrate");
-  if (existsSync(envPath)) log(`exists: ${envPath}`);
-  else {
-    writeFileSync(envPath, ENV_TEMPLATE);
-    log(`created: ${envPath}`);
-  }
-
-  const cfgPath = join(dir, "narrate.config.json");
-  if (existsSync(cfgPath)) log(`exists: ${cfgPath}`);
-  else {
-    writeFileSync(cfgPath, `${JSON.stringify(ConfigSchema.parse({}), null, 2)}\n`);
-    log(`created: ${cfgPath}`);
+  const path = settingsPath(cwd);
+  let created = false;
+  if (existsSync(path)) {
+    log(`exists: ${path}`);
+  } else {
+    writeFileSync(path, `${JSON.stringify(settingsTemplate(), null, 2)}\n`);
+    created = true;
+    log(`created: ${path}`);
   }
 
   ensureGitignore(cwd, ".narrate/");
-  log(
-    "`.narrate/` is gitignored. Edit .narrate/.env.narrate (keys) and narrate.config.json (settings).",
-  );
+  log(`\`.narrate/\` is gitignored. Edit .narrate/${SETTINGS_FILE} (config + keys).`);
+  return { created, path };
+}
+
+/**
+ * Write an API key into `.narrate/settings.local.json` and switch the active
+ * provider to it. Used by onboarding so keys never have to be hand-edited into
+ * JSON. Creates the file from defaults if it doesn't exist yet.
+ */
+export function setKey(
+  cwd: string,
+  provider: "gemini" | "elevenlabs",
+  key: string,
+  log: (msg: string) => void = console.log,
+): string {
+  const dir = join(cwd, ".narrate");
+  mkdirSync(dir, { recursive: true });
+  const path = settingsPath(cwd);
+
+  const raw: Record<string, unknown> = existsSync(path)
+    ? JSON.parse(readFileSync(path, "utf8"))
+    : settingsTemplate();
+
+  const tts = { ...(raw.tts as Record<string, unknown> | undefined) };
+  const keys = { ...(raw.keys as Record<string, unknown> | undefined) };
+  keys[provider] = key.trim();
+  tts.provider = provider;
+  // A Gemini-named voice can't address an ElevenLabs voice id — reset to default.
+  if (provider === "elevenlabs" && (!tts.voice || tts.voice === "Kore")) {
+    tts.voice = ELEVENLABS_DEFAULT_VOICE;
+  }
+  raw.tts = tts;
+  raw.keys = keys;
+
+  writeFileSync(path, `${JSON.stringify(raw, null, 2)}\n`);
+  ensureGitignore(cwd, ".narrate/");
+  log(`set keys.${provider} and tts.provider="${provider}" in ${path}`);
+  return path;
 }
 
 export interface CheckResult {
@@ -77,15 +116,16 @@ export function checkEnv(config: Config): CheckResult {
     `config:  provider=${config.tts.provider}, voice=${config.tts.voice}, format=${config.output.format}, crf=${config.output.crf}`,
   );
 
-  const envName = apiKeyEnvName(config);
-  if (!envName) {
-    lines.push(`TTS key: not required (provider "${config.tts.provider}")`);
-  } else if (process.env[envName]?.trim()) {
-    lines.push(`TTS key: OK (${envName} is set)`);
+  const provider = config.tts.provider;
+  if (provider === "os" || provider === "mock") {
+    lines.push(`TTS key: not required (provider "${provider}")`);
+  } else if (hasApiKey(config)) {
+    lines.push(`TTS key: OK (keys.${provider} set in .narrate/${SETTINGS_FILE})`);
   } else {
     ok = false;
     lines.push(
-      `TTS key: MISSING — set ${envName} in .narrate/.env.narrate (or use --provider os for the OS voice / --provider mock for silent)`,
+      `TTS key: MISSING — add it under keys.${provider} in .narrate/${SETTINGS_FILE} ` +
+        `(or run \`narrate set-key ${provider} <key>\`; or use --provider os for the OS voice / mock for silent)`,
     );
   }
 

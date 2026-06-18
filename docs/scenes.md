@@ -21,6 +21,9 @@ visual actions (`do`) shown while it plays.
     {
       "id": "form",
       "say": "We enter an email and a password, then submit.",
+      "focus": "form#signup",                   // optional: highlight this element for the whole beat
+      "focusStyle": "spotlight",                // optional: ring (default) | glow | spotlight
+      "focusLabel": "Sign-up form",             // optional: caption next to it
       "do": [
         { "action": "scrollIntoView", "selector": "form#signup" },
         { "action": "type", "selector": "#email", "text": "test@example.com" },
@@ -98,6 +101,25 @@ Selectors are real [Playwright selectors](https://playwright.dev/docs/selectors)
 | `scrollTo` | `y`, `over` (default 0 = instant) |
 | `scrollThrough` | `selector` (optional; whole page if omitted), `over` (default 4000) |
 | `scrollIntoView` | `selector`, `over` (default 800) |
+
+### Highlighting / pointer
+These drive an overlay injected **into the recorded page** (a synthetic cursor and
+element highlights) — never the real OS cursor, and `pointer-events:none` so they
+never block the actual interactions. Toggle them in [config `overlay`](./configuration.md).
+
+| Step | Fields |
+| --- | --- |
+| `highlight` | `selector`, `style` (`ring`\|`glow`\|`spotlight`; default from config), `label` (optional) — stays until `unhighlight` or the beat ends |
+| `unhighlight` | `selector` (optional; omit to clear all) |
+| `point` | `selector` — glide the synthetic cursor onto an element (no click) |
+
+When `overlay.cursor` is on (default), `click`/`dblclick`/`hover`/`type`/`fill` and
+friends automatically glide the cursor to their target first (clicks add a ripple),
+so you rarely need an explicit `point`.
+
+For "the narration talks about X", prefer the beat-level **`focus`** /
+`focusStyle` / `focusLabel` fields (above) — they highlight X for the beat's whole
+duration and clear automatically.
 
 ### Convenience / escape hatch
 | Step | Fields |

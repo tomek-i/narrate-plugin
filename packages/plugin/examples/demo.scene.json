@@ -13,6 +13,9 @@
     {
       "id": "features",
       "say": "Scrolling down reveals the features section: a clean, responsive grid of cards, each describing something the product does.",
+      "focus": "#features",
+      "focusStyle": "spotlight",
+      "focusLabel": "Features",
       "do": [
         { "action": "scrollIntoView", "selector": "#features", "over": 1800 },
         { "action": "wait", "ms": 1500 }
@@ -23,7 +26,9 @@
       "say": "At the bottom there's a simple sign-up form. We'll type in an email address, enter a password, and submit to create the account.",
       "do": [
         { "action": "scrollIntoView", "selector": "#signup", "over": 1500 },
+        { "action": "highlight", "selector": "#email", "label": "Email" },
         { "action": "type", "selector": "#email", "text": "demo@example.com", "delay": 70 },
+        { "action": "unhighlight", "selector": "#email" },
         { "action": "fill", "selector": "#password", "text": "sup3r-secret" },
         { "action": "wait", "ms": 500 },
         { "action": "click", "selector": "button[type=submit]" },

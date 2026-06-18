@@ -5,6 +5,10 @@
     "voice": "Kore",
     "model": "gemini-2.5-flash-preview-tts"
   },
+  "keys": {
+    "gemini": "",
+    "elevenlabs": ""
+  },
   "output": {
     "dir": "out",
     "width": 1440,

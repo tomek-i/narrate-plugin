@@ -15,10 +15,9 @@ out/
 *.wav
 
 # secrets / local config
+# (.narrate/ above already covers settings.local.json, which holds the API keys)
 .env
 .env.*
-!.env.narrate.example
-narrate.config.json
 
 # local reference material (original POC), not part of the package
 _reference/

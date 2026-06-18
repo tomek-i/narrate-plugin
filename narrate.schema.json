@@ -15,7 +15,7 @@
                 "os",
                 "mock"
               ],
-              "default": "gemini"
+              "default": "os"
             },
             "voice": {
               "type": "string",
@@ -30,9 +30,22 @@
           },
           "additionalProperties": false,
           "default": {
-            "provider": "gemini",
+            "provider": "os",
             "voice": "Kore"
           }
+        },
+        "keys": {
+          "type": "object",
+          "properties": {
+            "gemini": {
+              "type": "string"
+            },
+            "elevenlabs": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "default": {}
         },
         "output": {
           "type": "object",
@@ -74,6 +87,39 @@
             "fps": 25,
             "format": "mp4",
             "crf": 16
+          }
+        },
+        "overlay": {
+          "type": "object",
+          "properties": {
+            "cursor": {
+              "type": "boolean",
+              "default": true
+            },
+            "highlight": {
+              "type": "boolean",
+              "default": true
+            },
+            "style": {
+              "type": "string",
+              "enum": [
+                "ring",
+                "glow",
+                "spotlight"
+              ],
+              "default": "ring"
+            },
+            "color": {
+              "type": "string",
+              "default": "#6366f1"
+            }
+          },
+          "additionalProperties": false,
+          "default": {
+            "cursor": true,
+            "highlight": true,
+            "style": "ring",
+            "color": "#6366f1"
           }
         }
       },

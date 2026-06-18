@@ -18,7 +18,13 @@ export function makeProvider(config: Config): TTSProvider {
     case "gemini":
       return new GeminiProvider(resolveApiKey(config), voice, model);
     case "elevenlabs":
-      return new ElevenLabsProvider(resolveApiKey(config), voice, model);
+      // "Kore" is the Gemini default and isn't a valid ElevenLabs voice id, so
+      // fall back to the provider's own default rather than sending it.
+      return new ElevenLabsProvider(
+        resolveApiKey(config),
+        voice === "Kore" ? undefined : voice,
+        model,
+      );
     case "os":
       return new OsTtsProvider();
     case "mock":

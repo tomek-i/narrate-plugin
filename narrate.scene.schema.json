@@ -51,6 +51,20 @@
               "voice": {
                 "type": "string"
               },
+              "focus": {
+                "type": "string"
+              },
+              "focusStyle": {
+                "type": "string",
+                "enum": [
+                  "ring",
+                  "glow",
+                  "spotlight"
+                ]
+              },
+              "focusLabel": {
+                "type": "string"
+              },
               "do": {
                 "type": "array",
                 "items": {
@@ -502,6 +516,67 @@
                           "type": "number",
                           "minimum": 0,
                           "default": 800
+                        }
+                      },
+                      "required": [
+                        "action",
+                        "selector"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "action": {
+                          "type": "string",
+                          "const": "highlight"
+                        },
+                        "selector": {
+                          "type": "string"
+                        },
+                        "style": {
+                          "type": "string",
+                          "enum": [
+                            "ring",
+                            "glow",
+                            "spotlight"
+                          ]
+                        },
+                        "label": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "action",
+                        "selector"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "action": {
+                          "type": "string",
+                          "const": "unhighlight"
+                        },
+                        "selector": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "action"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "action": {
+                          "type": "string",
+                          "const": "point"
+                        },
+                        "selector": {
+                          "type": "string"
                         }
                       },
                       "required": [

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { parseRate, pcmToWav } from "../src/audio/wav.js";
+import { hasApiKey, resolveApiKey } from "../src/config.js";
 import { MockProvider } from "../src/tts/mock.js";
 import { OsTtsProvider } from "../src/tts/os.js";
 import { ConfigSchema, SceneSchema } from "../src/types.js";
@@ -69,9 +70,37 @@ test("SceneSchema accepts form-interaction steps with defaults", () => {
   assert.equal(steps[2].action === "waitFor" && steps[2].state, "visible");
 });
 
-test("ConfigSchema defaults to gemini/Kore", () => {
+test("ConfigSchema defaults to the keyless OS voice", () => {
   const cfg = ConfigSchema.parse({});
-  assert.equal(cfg.tts.provider, "gemini");
+  // Default to a no-key provider so a fresh install works out of the box.
+  assert.equal(cfg.tts.provider, "os");
   assert.equal(cfg.tts.voice, "Kore");
   assert.equal(cfg.output.format, "mp4");
+  assert.deepEqual(cfg.keys, {});
+});
+
+test("os/mock providers need no key; resolveApiKey returns empty", () => {
+  for (const provider of ["os", "mock"] as const) {
+    const cfg = ConfigSchema.parse({ tts: { provider } });
+    assert.equal(hasApiKey(cfg), true);
+    assert.equal(resolveApiKey(cfg), "");
+  }
+});
+
+test("a key in the config file is used and beats the env fallback", () => {
+  const cfg = ConfigSchema.parse({
+    tts: { provider: "gemini" },
+    keys: { gemini: "file-key" },
+  });
+  assert.equal(hasApiKey(cfg), true);
+  assert.equal(resolveApiKey(cfg), "file-key");
+});
+
+test("a missing key reports not-configured and resolveApiKey throws", () => {
+  // apiKeyEnv points at a var that isn't set, and no key is in the config.
+  const cfg = ConfigSchema.parse({
+    tts: { provider: "gemini", apiKeyEnv: "NARRATE_UNSET_TEST_KEY" },
+  });
+  assert.equal(hasApiKey(cfg), false);
+  assert.throws(() => resolveApiKey(cfg), /Missing API key/);
 });

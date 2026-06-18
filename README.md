@@ -19,11 +19,14 @@ syncing** — see [docs/architecture.md](./docs/architecture.md).
 
 /narrate-demo                                              # see it work, zero setup
 /narrate-video the signup flow using test@example.com and a valid password
+/narrate-setup                                             # optional: add a cloud TTS key
 ```
 
 `/narrate-demo` renders a built-in demo app end-to-end. `/narrate-video <prompt>`
 gets *your* app running, scripts the scene, records it, and drops the video at
-`./docs/<slug>.mp4`.
+`./docs/<slug>.mp4`. Both work **out of the box with the OS voice** — no key needed.
+`/narrate-setup` is optional: it stores a Gemini/ElevenLabs key for higher-quality
+cloud narration.
 
 **As a CLI:**
 
@@ -36,8 +39,9 @@ pnpm narrate render --scene packages/plugin/examples/demo.scene.json --provider 
 ## Requirements
 
 **ffmpeg + ffprobe** on your PATH is the only manual dependency — Playwright +
-Chromium are auto-provisioned on the first render. For real narration, add a TTS
-API key (Gemini by default; `--provider mock` needs none).
+Chromium are auto-provisioned on the first render. Narration works out of the box
+with the **OS voice** (no key; Linux needs `espeak`). For studio-quality cloud
+narration, add a Gemini/ElevenLabs key via `/narrate-setup` (or `narrate set-key`).
 
 ## Documentation
 

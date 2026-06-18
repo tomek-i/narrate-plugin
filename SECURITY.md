@@ -17,4 +17,5 @@ acknowledgement within a few days, and a fix or mitigation plan once triaged.
   it does not run a network service.
 - `eval` steps and the `apiKeyEnv` config execute/resolve values from **local,
   trusted** scene/config files. Don't run scenes you don't trust.
-- TTS API keys live in `.env.narrate` (gitignored) — never commit real keys.
+- TTS API keys live in `.narrate/settings.local.json` (the whole `.narrate/` dir
+  is gitignored) — never commit real keys.
