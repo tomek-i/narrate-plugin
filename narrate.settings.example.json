@@ -1,13 +1,17 @@
 {
-  "$schema": "./narrate.schema.json",
+  "$schema": "https://raw.githubusercontent.com/tomek-i/narrate-plugin/main/narrate.schema.json",
   "tts": {
     "provider": "gemini",
-    "voice": "Kore",
-    "model": "gemini-2.5-flash-preview-tts"
-  },
-  "keys": {
-    "gemini": "",
-    "elevenlabs": ""
+    "gemini": {
+      "key": "",
+      "voice": "Kore",
+      "model": "gemini-2.5-flash-preview-tts"
+    },
+    "elevenlabs": {
+      "key": "",
+      "voice": "9BWtsMINqrJLrRacOk9x",
+      "model": "eleven_multilingual_v2"
+    }
   },
   "output": {
     "dir": "out",
@@ -16,5 +20,12 @@
     "fps": 25,
     "format": "mp4",
     "crf": 16
+  },
+  "overlay": {
+    "cursor": true,
+    "highlight": true,
+    "style": "ring",
+    "holdMs": 3000,
+    "color": "#6366f1"
   }
 }

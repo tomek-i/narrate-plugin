@@ -121,13 +121,22 @@ export const OVERLAY_SCRIPT = String.raw`
     setTimeout(function () { d.remove(); }, 520);
   };
 
+  // Fade an entry out (so the page returns to normal) instead of a hard cut.
+  function fadeOut(h) {
+    if (h.timer) { clearTimeout(h.timer); h.timer = null; }
+    var els = [h.box]; if (h.label) els.push(h.label);
+    els.forEach(function (e) { e.style.transition = 'opacity .3s ease'; e.style.opacity = '0'; });
+    setTimeout(function () { els.forEach(function (e) { e.remove(); }); }, 320);
+  }
+
   NS.highlight = function (sel, opts) {
     ensure();
     opts = opts || {};
     var style = opts.style || 'ring';
+    var hold = opts.hold == null ? 0 : opts.hold; // engine passes the configured value
     var c = color();
     var prev = highlights.get(sel);
-    if (prev) { prev.box.remove(); if (prev.label) prev.label.remove(); }
+    if (prev) { highlights.delete(sel); fadeOut(prev); }
     var box = makeBox(style, c);
     layer.appendChild(box);
     var label = null;
@@ -139,17 +148,20 @@ export const OVERLAY_SCRIPT = String.raw`
         'white-space:nowrap;opacity:0;box-shadow:0 2px 8px rgba(0,0,0,.3);transition:left .25s ease,top .25s ease,opacity .2s;';
       layer.appendChild(label);
     }
-    highlights.set(sel, { box: box, label: label, style: style });
+    var entry = { box: box, label: label, style: style, timer: null };
+    // Auto-fade after hold ms so a highlight is a brief pulse, not a full-beat
+    // overlay that obscures the page and confuses real vs. animated content.
+    if (hold > 0) entry.timer = setTimeout(function () { NS.unhighlight(sel); }, hold);
+    highlights.set(sel, entry);
     return true;
   };
 
   NS.unhighlight = function (sel) {
     if (sel) {
       var h = highlights.get(sel);
-      if (h) { h.box.remove(); if (h.label) h.label.remove(); highlights.delete(sel); }
+      if (h) { highlights.delete(sel); fadeOut(h); }
     } else {
-      highlights.forEach(function (h) { h.box.remove(); if (h.label) h.label.remove(); });
-      highlights.clear();
+      highlights.forEach(function (h, k) { highlights.delete(k); fadeOut(h); });
     }
   };
 

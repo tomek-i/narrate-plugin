@@ -7169,7 +7169,10 @@ var StepSchema = external_exports.discriminatedUnion("action", [
     action: external_exports.literal("highlight"),
     selector: external_exports.string(),
     style: external_exports.enum(["ring", "glow", "spotlight"]).optional(),
-    label: external_exports.string().optional()
+    label: external_exports.string().optional(),
+    /** ms to show before auto-fading (default: config.overlay.holdMs). 0 = until
+     *  `unhighlight` or the beat ends. */
+    hold: external_exports.number().min(0).optional()
   }),
   // Remove a specific highlight (by selector) or all of them (no selector).
   external_exports.object({ action: external_exports.literal("unhighlight"), selector: external_exports.string().optional() }),
@@ -7205,23 +7208,32 @@ var SceneSchema = external_exports.object({
   beats: external_exports.array(BeatSchema).min(1)
 });
 var ConfigSchema = external_exports.object({
+  /**
+   * TTS settings. `provider` selects the engine; per-provider settings (voice,
+   * model, key, …) are nested under their own block so each can differ. Keys live
+   * here too — `.narrate/` is gitignored, so they're never committed. Only the
+   * active provider's block is used; the others may sit pre-filled but unused.
+   */
   tts: external_exports.object({
     // Default to the OS's built-in voice so a fresh install works with no key.
     // Upgrade to a cloud voice (gemini/elevenlabs) via `narrate set-key`.
     provider: external_exports.enum(["gemini", "elevenlabs", "os", "mock"]).default("os"),
-    voice: external_exports.string().default("Kore"),
-    model: external_exports.string().optional(),
-    /** Override the env var name the API key is read from (env fallback only). */
-    apiKeyEnv: external_exports.string().optional()
-  }).default({ provider: "os", voice: "Kore" }),
-  /**
-   * API keys, stored in this same file. `.narrate/` is gitignored, so they're
-   * never committed. The key for `tts.provider` is used; others may sit unused.
-   */
-  keys: external_exports.object({
-    gemini: external_exports.string().optional(),
-    elevenlabs: external_exports.string().optional()
-  }).default({}),
+    gemini: external_exports.object({
+      key: external_exports.string().optional(),
+      voice: external_exports.string().default("Kore"),
+      model: external_exports.string().default("gemini-2.5-flash-preview-tts"),
+      /** Env var to read the key from if `key` is empty (CI fallback). */
+      apiKeyEnv: external_exports.string().optional()
+    }).default({}),
+    elevenlabs: external_exports.object({
+      key: external_exports.string().optional(),
+      voice: external_exports.string().default("9BWtsMINqrJLrRacOk9x"),
+      // "Aria" — current default voice
+      model: external_exports.string().default("eleven_multilingual_v2"),
+      /** Env var to read the key from if `key` is empty (CI fallback). */
+      apiKeyEnv: external_exports.string().optional()
+    }).default({})
+  }).default({ provider: "os" }),
   output: external_exports.object({
     dir: external_exports.string().default("out"),
     width: external_exports.number().default(1440),
@@ -7242,9 +7254,15 @@ var ConfigSchema = external_exports.object({
     highlight: external_exports.boolean().default(true),
     /** Default highlight style when a step/beat doesn't specify one. */
     style: external_exports.enum(["ring", "glow", "spotlight"]).default("ring"),
+    /**
+     * How long a highlight/focus stays before fading back to the clean page
+     * (ms). Short by design — a brief pulse grabs attention without obscuring
+     * the page for the whole beat. Per-`highlight`-step `hold` overrides it.
+     */
+    holdMs: external_exports.number().min(0).default(3e3),
     /** Accent color (CSS) for the cursor, ripple, and highlights. */
     color: external_exports.string().default("#6366f1")
-  }).default({ cursor: true, highlight: true, style: "ring", color: "#6366f1" })
+  }).default({ cursor: true, highlight: true, style: "ring", holdMs: 3e3, color: "#6366f1" })
 });
 
 // src/config.ts
@@ -7281,30 +7299,35 @@ function loadScene(cwd, scenePath) {
   }
   return scene;
 }
-function keyedProvider(config) {
+function providerSettings(config) {
   const p = config.tts.provider;
-  return p === "gemini" || p === "elevenlabs" ? p : null;
+  if (p === "gemini") return config.tts.gemini;
+  if (p === "elevenlabs") return config.tts.elevenlabs;
+  return null;
 }
 function apiKeyEnvName(config) {
-  return config.tts.apiKeyEnv ?? KEY_ENV[config.tts.provider];
+  const s = providerSettings(config);
+  if (!s) return null;
+  return s.apiKeyEnv ?? KEY_ENV[config.tts.provider];
 }
 function hasApiKey(config) {
-  const provider = keyedProvider(config);
-  if (!provider) return true;
-  if (config.keys[provider]?.trim()) return true;
+  const s = providerSettings(config);
+  if (!s) return true;
+  if (s.key?.trim()) return true;
   const envName = apiKeyEnvName(config);
   return Boolean(envName && process.env[envName]?.trim());
 }
 function resolveApiKey(config) {
-  const provider = keyedProvider(config);
-  if (!provider) return "";
-  const fromFile = config.keys[provider]?.trim();
+  const s = providerSettings(config);
+  if (!s) return "";
+  const fromFile = s.key?.trim();
   if (fromFile) return fromFile;
   const envName = apiKeyEnvName(config);
   const fromEnv = envName ? process.env[envName]?.trim() : void 0;
   if (fromEnv) return fromEnv;
+  const provider = config.tts.provider;
   throw new Error(
-    `Missing API key for provider "${config.tts.provider}". Add it under keys.${provider} in .narrate/${SETTINGS_FILE} (run \`narrate set-key ${provider} <key>\`)${envName ? ` or set ${envName}` : ""}.`
+    `Missing API key for provider "${provider}". Add it under tts.${provider}.key in .narrate/${SETTINGS_FILE} (run \`narrate set-key ${provider} <key>\`)${envName ? ` or set ${envName}` : ""}.`
   );
 }
 
@@ -7613,13 +7636,22 @@ var OVERLAY_SCRIPT = String.raw`
     setTimeout(function () { d.remove(); }, 520);
   };
 
+  // Fade an entry out (so the page returns to normal) instead of a hard cut.
+  function fadeOut(h) {
+    if (h.timer) { clearTimeout(h.timer); h.timer = null; }
+    var els = [h.box]; if (h.label) els.push(h.label);
+    els.forEach(function (e) { e.style.transition = 'opacity .3s ease'; e.style.opacity = '0'; });
+    setTimeout(function () { els.forEach(function (e) { e.remove(); }); }, 320);
+  }
+
   NS.highlight = function (sel, opts) {
     ensure();
     opts = opts || {};
     var style = opts.style || 'ring';
+    var hold = opts.hold == null ? 0 : opts.hold; // engine passes the configured value
     var c = color();
     var prev = highlights.get(sel);
-    if (prev) { prev.box.remove(); if (prev.label) prev.label.remove(); }
+    if (prev) { highlights.delete(sel); fadeOut(prev); }
     var box = makeBox(style, c);
     layer.appendChild(box);
     var label = null;
@@ -7631,17 +7663,20 @@ var OVERLAY_SCRIPT = String.raw`
         'white-space:nowrap;opacity:0;box-shadow:0 2px 8px rgba(0,0,0,.3);transition:left .25s ease,top .25s ease,opacity .2s;';
       layer.appendChild(label);
     }
-    highlights.set(sel, { box: box, label: label, style: style });
+    var entry = { box: box, label: label, style: style, timer: null };
+    // Auto-fade after hold ms so a highlight is a brief pulse, not a full-beat
+    // overlay that obscures the page and confuses real vs. animated content.
+    if (hold > 0) entry.timer = setTimeout(function () { NS.unhighlight(sel); }, hold);
+    highlights.set(sel, entry);
     return true;
   };
 
   NS.unhighlight = function (sel) {
     if (sel) {
       var h = highlights.get(sel);
-      if (h) { h.box.remove(); if (h.label) h.label.remove(); highlights.delete(sel); }
+      if (h) { highlights.delete(sel); fadeOut(h); }
     } else {
-      highlights.forEach(function (h) { h.box.remove(); if (h.label) h.label.remove(); });
-      highlights.clear();
+      highlights.forEach(function (h, k) { highlights.delete(k); fadeOut(h); });
     }
   };
 
@@ -7720,7 +7755,13 @@ var PlaywrightRecorder = class {
         const durMs = Math.round((durations[beat.id] ?? 3) * 1e3);
         targetEnd += durMs;
         if (fx.highlight && beat.focus) {
-          await applyHighlight(page, beat.focus, beat.focusStyle ?? fx.style, beat.focusLabel);
+          await applyHighlight(
+            page,
+            beat.focus,
+            beat.focusStyle ?? fx.style,
+            fx.holdMs,
+            beat.focusLabel
+          );
         }
         for (const step of beat.do) await runStep(page, step, fx);
         const remaining = targetEnd - (Date.now() - t0);
@@ -7752,20 +7793,20 @@ async function settle(page) {
 }
 var POINT_MS = 450;
 async function pointTo(page, selector) {
-  const moved = await page.evaluate(
-    ([sel, dur]) => Boolean(window.__narrate?.pointAt(sel, dur)),
-    [selector, POINT_MS]
-  ).catch(() => false);
+  const moved = await page.evaluate(([sel, dur]) => Boolean(window.__narrate?.pointAt(sel, dur)), [
+    selector,
+    POINT_MS
+  ]).catch(() => false);
   if (moved) await page.waitForTimeout(POINT_MS + 30);
 }
 async function ripple(page, selector) {
   await page.evaluate((sel) => window.__narrate?.ripple(sel), selector ?? null).catch(() => {
   });
 }
-async function applyHighlight(page, selector, style, label) {
+async function applyHighlight(page, selector, style, holdMs, label) {
   await page.evaluate(
-    (o) => window.__narrate?.highlight(o.selector, { style: o.style, label: o.label }),
-    { selector, style, label }
+    (o) => window.__narrate?.highlight(o.selector, { style: o.style, label: o.label, hold: o.hold }),
+    { selector, style, label, hold: holdMs }
   ).catch(() => {
   });
 }
@@ -7891,7 +7932,15 @@ async function runStep(page, step, fx) {
     }
     // --- highlighting / pointer ---
     case "highlight":
-      if (fx.highlight) await applyHighlight(page, step.selector, step.style ?? fx.style, step.label);
+      if (fx.highlight) {
+        await applyHighlight(
+          page,
+          step.selector,
+          step.style ?? fx.style,
+          step.hold ?? fx.holdMs,
+          step.label
+        );
+      }
       return;
     case "unhighlight":
       if (fx.highlight) await clearHighlight(page, step.selector);
@@ -7933,7 +7982,7 @@ async function smoothScrollTo(page, targetY, overMs) {
 
 // src/tts/elevenlabs.ts
 var DEFAULT_MODEL = "eleven_multilingual_v2";
-var DEFAULT_VOICE = "21m00Tcm4TlvDq8ikWAM";
+var DEFAULT_VOICE = "9BWtsMINqrJLrRacOk9x";
 var ElevenLabsProvider = class {
   constructor(key, voice = DEFAULT_VOICE, model = DEFAULT_MODEL) {
     this.key = key;
@@ -8150,16 +8199,15 @@ function silent(text) {
 
 // src/tts/index.ts
 function makeProvider(config) {
-  const { provider, voice, model } = config.tts;
-  switch (provider) {
-    case "gemini":
-      return new GeminiProvider(resolveApiKey(config), voice, model);
-    case "elevenlabs":
-      return new ElevenLabsProvider(
-        resolveApiKey(config),
-        voice === "Kore" ? void 0 : voice,
-        model
-      );
+  switch (config.tts.provider) {
+    case "gemini": {
+      const g = config.tts.gemini;
+      return new GeminiProvider(resolveApiKey(config), g.voice, g.model);
+    }
+    case "elevenlabs": {
+      const e = config.tts.elevenlabs;
+      return new ElevenLabsProvider(resolveApiKey(config), e.voice, e.model);
+    }
     case "os":
       return new OsTtsProvider();
     case "mock":
@@ -8191,7 +8239,8 @@ async function render(scene, config, opts) {
   const audioDir = join4(outDir, "audio");
   mkdirSync(audioDir, { recursive: true });
   const provider = makeProvider(config);
-  log(`Generating narration with "${provider.name}" (voice: ${config.tts.voice})\u2026`);
+  const activeVoice = config.tts.provider === "gemini" ? config.tts.gemini.voice : config.tts.provider === "elevenlabs" ? config.tts.elevenlabs.voice : provider.name;
+  log(`Generating narration with "${provider.name}" (voice: ${activeVoice})\u2026`);
   const durations = {};
   const wavs = [];
   for (const beat of scene.beats) {
@@ -8248,10 +8297,10 @@ ${mux.stderr.trim().split("\n").slice(-12).join("\n")}`);
 // src/project.ts
 import { existsSync as existsSync3, mkdirSync as mkdirSync2, readFileSync as readFileSync3, writeFileSync as writeFileSync4 } from "fs";
 import { join as join5 } from "path";
-var ELEVENLABS_DEFAULT_VOICE = "21m00Tcm4TlvDq8ikWAM";
+var SCHEMA_URL = "https://raw.githubusercontent.com/tomek-i/narrate-plugin/main/narrate.schema.json";
 function settingsTemplate() {
   return {
-    $schema: "../narrate.schema.json",
+    $schema: SCHEMA_URL,
     ...ConfigSchema.parse({})
   };
 }
@@ -8286,18 +8335,15 @@ function setKey(cwd, provider, key, log = console.log) {
   const path = settingsPath(cwd);
   const raw = existsSync3(path) ? JSON.parse(readFileSync3(path, "utf8")) : settingsTemplate();
   const tts = { ...raw.tts };
-  const keys = { ...raw.keys };
-  keys[provider] = key.trim();
+  const block = { ...tts[provider] };
+  block.key = key.trim();
+  tts[provider] = block;
   tts.provider = provider;
-  if (provider === "elevenlabs" && (!tts.voice || tts.voice === "Kore")) {
-    tts.voice = ELEVENLABS_DEFAULT_VOICE;
-  }
   raw.tts = tts;
-  raw.keys = keys;
   writeFileSync4(path, `${JSON.stringify(raw, null, 2)}
 `);
   ensureGitignore(cwd, ".narrate/");
-  log(`set keys.${provider} and tts.provider="${provider}" in ${path}`);
+  log(`set tts.${provider}.key and tts.provider="${provider}" in ${path}`);
   return path;
 }
 function checkEnv(config) {
@@ -8310,18 +8356,19 @@ function checkEnv(config) {
     ok = false;
     lines.push(`ffmpeg:  MISSING \u2014 ${err instanceof Error ? err.message : err}`);
   }
-  lines.push(
-    `config:  provider=${config.tts.provider}, voice=${config.tts.voice}, format=${config.output.format}, crf=${config.output.crf}`
-  );
   const provider = config.tts.provider;
+  const voice = provider === "gemini" ? config.tts.gemini.voice : provider === "elevenlabs" ? config.tts.elevenlabs.voice : "\u2014";
+  lines.push(
+    `config:  provider=${provider}, voice=${voice}, format=${config.output.format}, crf=${config.output.crf}`
+  );
   if (provider === "os" || provider === "mock") {
     lines.push(`TTS key: not required (provider "${provider}")`);
   } else if (hasApiKey(config)) {
-    lines.push(`TTS key: OK (keys.${provider} set in .narrate/${SETTINGS_FILE})`);
+    lines.push(`TTS key: OK (tts.${provider}.key set in .narrate/${SETTINGS_FILE})`);
   } else {
     ok = false;
     lines.push(
-      `TTS key: MISSING \u2014 add it under keys.${provider} in .narrate/${SETTINGS_FILE} (or run \`narrate set-key ${provider} <key>\`; or use --provider os for the OS voice / mock for silent)`
+      `TTS key: MISSING \u2014 add it under tts.${provider}.key in .narrate/${SETTINGS_FILE} (or run \`narrate set-key ${provider} <key>\`; or use --provider os for the OS voice / mock for silent)`
     );
   }
   lines.push(`RESULT:  ${ok ? "PASS" : "FAIL"}`);
@@ -8330,12 +8377,15 @@ function checkEnv(config) {
 
 // src/cli.ts
 var program2 = new Command();
-program2.name("narrate").description("Generate a narrated walkthrough video of a website.").version("0.17.0");
+program2.name("narrate").description("Generate a narrated walkthrough video of a website.").version("0.19.0");
 program2.command("render").description("TTS \u2192 record \u2192 mux into one narrated video.").requiredOption("-s, --scene <file>", "scene JSON file").option("-c, --config <file>", "config file (default: .narrate/settings.local.json)").option("-o, --out <dir>", "output directory (overrides config output.dir)").option("--provider <name>", "override TTS provider (gemini|elevenlabs|os|mock)").option("--voice <name>", "override voice").action(async (o) => {
   const cwd = process.cwd();
   const config = loadConfig(cwd, o.config);
   if (o.provider) config.tts.provider = o.provider;
-  if (o.voice) config.tts.voice = o.voice;
+  if (o.voice) {
+    if (config.tts.provider === "gemini") config.tts.gemini.voice = o.voice;
+    else if (config.tts.provider === "elevenlabs") config.tts.elevenlabs.voice = o.voice;
+  }
   if (o.out) config.output.dir = o.out;
   const scene = loadScene(cwd, o.scene);
   const out = await render(scene, config, { cwd, onLog: (m) => console.log(m) });

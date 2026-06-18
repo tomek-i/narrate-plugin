@@ -4,13 +4,19 @@ import { SETTINGS_FILE, hasApiKey, settingsPath } from "./config.js";
 import { ensureFfmpeg } from "./mux/ffmpeg.js";
 import { type Config, ConfigSchema } from "./types.js";
 
-/** ElevenLabs uses voice *ids*, so this Gemini-named default doesn't apply. */
-const ELEVENLABS_DEFAULT_VOICE = "21m00Tcm4TlvDq8ikWAM"; // "Rachel" (public)
+/**
+ * Hosted JSON Schema for editor autocomplete. A relative path can't work: the
+ * plugin may be installed at user/global scope, so the schema file isn't next to
+ * the user's project. A remote URL resolves anywhere and degrades silently if
+ * unreachable (no "schema not found" squiggle).
+ */
+const SCHEMA_URL =
+  "https://raw.githubusercontent.com/tomek-i/narrate-plugin/main/narrate.schema.json";
 
 /** The on-disk shape of settings.local.json (config + an editor `$schema`). */
 function settingsTemplate(): Record<string, unknown> {
   return {
-    $schema: "../narrate.schema.json",
+    $schema: SCHEMA_URL,
     ...ConfigSchema.parse({}),
   };
 }
@@ -75,19 +81,15 @@ export function setKey(
     : settingsTemplate();
 
   const tts = { ...(raw.tts as Record<string, unknown> | undefined) };
-  const keys = { ...(raw.keys as Record<string, unknown> | undefined) };
-  keys[provider] = key.trim();
+  const block = { ...(tts[provider] as Record<string, unknown> | undefined) };
+  block.key = key.trim();
+  tts[provider] = block;
   tts.provider = provider;
-  // A Gemini-named voice can't address an ElevenLabs voice id — reset to default.
-  if (provider === "elevenlabs" && (!tts.voice || tts.voice === "Kore")) {
-    tts.voice = ELEVENLABS_DEFAULT_VOICE;
-  }
   raw.tts = tts;
-  raw.keys = keys;
 
   writeFileSync(path, `${JSON.stringify(raw, null, 2)}\n`);
   ensureGitignore(cwd, ".narrate/");
-  log(`set keys.${provider} and tts.provider="${provider}" in ${path}`);
+  log(`set tts.${provider}.key and tts.provider="${provider}" in ${path}`);
   return path;
 }
 
@@ -112,19 +114,25 @@ export function checkEnv(config: Config): CheckResult {
     lines.push(`ffmpeg:  MISSING — ${err instanceof Error ? err.message : err}`);
   }
 
+  const provider = config.tts.provider;
+  const voice =
+    provider === "gemini"
+      ? config.tts.gemini.voice
+      : provider === "elevenlabs"
+        ? config.tts.elevenlabs.voice
+        : "—";
   lines.push(
-    `config:  provider=${config.tts.provider}, voice=${config.tts.voice}, format=${config.output.format}, crf=${config.output.crf}`,
+    `config:  provider=${provider}, voice=${voice}, format=${config.output.format}, crf=${config.output.crf}`,
   );
 
-  const provider = config.tts.provider;
   if (provider === "os" || provider === "mock") {
     lines.push(`TTS key: not required (provider "${provider}")`);
   } else if (hasApiKey(config)) {
-    lines.push(`TTS key: OK (keys.${provider} set in .narrate/${SETTINGS_FILE})`);
+    lines.push(`TTS key: OK (tts.${provider}.key set in .narrate/${SETTINGS_FILE})`);
   } else {
     ok = false;
     lines.push(
-      `TTS key: MISSING — add it under keys.${provider} in .narrate/${SETTINGS_FILE} ` +
+      `TTS key: MISSING — add it under tts.${provider}.key in .narrate/${SETTINGS_FILE} ` +
         `(or run \`narrate set-key ${provider} <key>\`; or use --provider os for the OS voice / mock for silent)`,
     );
   }

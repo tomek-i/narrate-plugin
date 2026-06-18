@@ -75,6 +75,9 @@ export const StepSchema = z.discriminatedUnion("action", [
     selector: z.string(),
     style: z.enum(["ring", "glow", "spotlight"]).optional(),
     label: z.string().optional(),
+    /** ms to show before auto-fading (default: config.overlay.holdMs). 0 = until
+     *  `unhighlight` or the beat ends. */
+    hold: z.number().min(0).optional(),
   }),
   // Remove a specific highlight (by selector) or all of them (no selector).
   z.object({ action: z.literal("unhighlight"), selector: z.string().optional() }),
@@ -121,27 +124,37 @@ export const SceneSchema = z.object({
 export type Scene = z.infer<typeof SceneSchema>;
 
 export const ConfigSchema = z.object({
+  /**
+   * TTS settings. `provider` selects the engine; per-provider settings (voice,
+   * model, key, …) are nested under their own block so each can differ. Keys live
+   * here too — `.narrate/` is gitignored, so they're never committed. Only the
+   * active provider's block is used; the others may sit pre-filled but unused.
+   */
   tts: z
     .object({
       // Default to the OS's built-in voice so a fresh install works with no key.
       // Upgrade to a cloud voice (gemini/elevenlabs) via `narrate set-key`.
       provider: z.enum(["gemini", "elevenlabs", "os", "mock"]).default("os"),
-      voice: z.string().default("Kore"),
-      model: z.string().optional(),
-      /** Override the env var name the API key is read from (env fallback only). */
-      apiKeyEnv: z.string().optional(),
+      gemini: z
+        .object({
+          key: z.string().optional(),
+          voice: z.string().default("Kore"),
+          model: z.string().default("gemini-2.5-flash-preview-tts"),
+          /** Env var to read the key from if `key` is empty (CI fallback). */
+          apiKeyEnv: z.string().optional(),
+        })
+        .default({}),
+      elevenlabs: z
+        .object({
+          key: z.string().optional(),
+          voice: z.string().default("9BWtsMINqrJLrRacOk9x"), // "Aria" — current default voice
+          model: z.string().default("eleven_multilingual_v2"),
+          /** Env var to read the key from if `key` is empty (CI fallback). */
+          apiKeyEnv: z.string().optional(),
+        })
+        .default({}),
     })
-    .default({ provider: "os", voice: "Kore" }),
-  /**
-   * API keys, stored in this same file. `.narrate/` is gitignored, so they're
-   * never committed. The key for `tts.provider` is used; others may sit unused.
-   */
-  keys: z
-    .object({
-      gemini: z.string().optional(),
-      elevenlabs: z.string().optional(),
-    })
-    .default({}),
+    .default({ provider: "os" }),
   output: z
     .object({
       dir: z.string().default("out"),
@@ -165,10 +178,16 @@ export const ConfigSchema = z.object({
       highlight: z.boolean().default(true),
       /** Default highlight style when a step/beat doesn't specify one. */
       style: z.enum(["ring", "glow", "spotlight"]).default("ring"),
+      /**
+       * How long a highlight/focus stays before fading back to the clean page
+       * (ms). Short by design — a brief pulse grabs attention without obscuring
+       * the page for the whole beat. Per-`highlight`-step `hold` overrides it.
+       */
+      holdMs: z.number().min(0).default(3000),
       /** Accent color (CSS) for the cursor, ripple, and highlights. */
       color: z.string().default("#6366f1"),
     })
-    .default({ cursor: true, highlight: true, style: "ring", color: "#6366f1" }),
+    .default({ cursor: true, highlight: true, style: "ring", holdMs: 3000, color: "#6366f1" }),
 });
 export type Config = z.infer<typeof ConfigSchema>;
 export type OverlayConfig = Config["overlay"];

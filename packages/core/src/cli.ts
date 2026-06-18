@@ -10,7 +10,7 @@ const program = new Command();
 program
   .name("narrate")
   .description("Generate a narrated walkthrough video of a website.")
-  .version("0.17.0");
+  .version("0.19.0");
 
 program
   .command("render")
@@ -24,7 +24,11 @@ program
     const cwd = process.cwd();
     const config = loadConfig(cwd, o.config);
     if (o.provider) config.tts.provider = o.provider;
-    if (o.voice) config.tts.voice = o.voice;
+    if (o.voice) {
+      // Apply the voice override to whichever provider is now active.
+      if (config.tts.provider === "gemini") config.tts.gemini.voice = o.voice;
+      else if (config.tts.provider === "elevenlabs") config.tts.elevenlabs.voice = o.voice;
+    }
     if (o.out) config.output.dir = o.out;
     const scene = loadScene(cwd, o.scene);
     const out = await render(scene, config, { cwd, onLog: (m) => console.log(m) });

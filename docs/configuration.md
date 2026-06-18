@@ -10,16 +10,20 @@ a cloud voice with `narrate set-key` (or the `/narrate-setup` skill).
 
 ```jsonc
 {
-  "$schema": "../narrate.schema.json",
+  "$schema": "https://raw.githubusercontent.com/tomek-i/narrate-plugin/main/narrate.schema.json",
   "tts": {
     "provider": "gemini",                      // gemini | elevenlabs | os | mock
-    "voice": "Kore",
-    "model": "gemini-2.5-flash-preview-tts",
-    "apiKeyEnv": "MY_CUSTOM_KEY_VAR"           // optional: env-var fallback name
-  },
-  "keys": {
-    "gemini": "AIza…",                         // the key for the active provider
-    "elevenlabs": ""                           // others may sit unused
+    "gemini": {                                // settings for the gemini provider
+      "key": "AIza…",                          // its API key (only the active provider's is used)
+      "voice": "Kore",
+      "model": "gemini-2.5-flash-preview-tts",
+      "apiKeyEnv": "MY_CUSTOM_KEY_VAR"         // optional: env-var fallback name
+    },
+    "elevenlabs": {                            // settings for the elevenlabs provider (differ from gemini's)
+      "key": "",
+      "voice": "9BWtsMINqrJLrRacOk9x",         // an ElevenLabs voice id ("Aria", a default voice)
+      "model": "eleven_multilingual_v2"
+    }
   },
   "output": {
     "dir": "out",                              // overridden by --out
@@ -33,6 +37,7 @@ a cloud voice with `narrate set-key` (or the `/narrate-setup` skill).
     "cursor": true,                            // glide a synthetic cursor onto elements before click/hover/type
     "highlight": true,                         // enable the `highlight` step + beat `focus`
     "style": "ring",                           // default highlight style: ring | glow | spotlight
+    "holdMs": 3000,                            // how long a highlight pulses before fading back to the clean page
     "color": "#6366f1"                         // accent for cursor, ripple, and highlights
   }
 }
@@ -46,8 +51,19 @@ click ripple, and element highlights (ring / glow / spotlight, with optional
 labels). It's drawn in a `pointer-events:none` layer, so it shows up in the video
 but never blocks the real interactions and never touches your OS cursor — it works
 headless on any site. All on by default; set any flag to `false` to disable it
-(e.g. `"cursor": false` for highlights only). Drive highlights from scenes via the
-beat `focus` field or the `highlight`/`point` steps — see [scenes.md](./scenes.md).
+(e.g. `"cursor": false` for highlights only).
+
+Two distinct roles keep it from feeling random:
+- **Cursor = interaction.** It automatically glides to every element a step acts
+  on (click/hover/type/fill/…), so interactions read like a real user — consistent
+  by construction.
+- **Highlights = brief accents.** A `focus`/`highlight` pulses for `holdMs` (default
+  3s) then **fades back to the clean page**, rather than sitting on screen for the
+  whole 10–15s beat (which would obscure the page and blur real vs. animated). Use
+  them to point at what the narration is describing, not on every interaction.
+
+Drive highlights from scenes via the beat `focus` field or the `highlight`/`point`
+steps — see [scenes.md](./scenes.md).
 
 mp4 output uses H.264 video + **MP3** audio (MP3 so VS Code's preview, which can't
 decode AAC, still plays sound), with `+faststart` and screen-content tuning
@@ -58,21 +74,25 @@ Override per run with `--provider`, `--voice`, and `--out`.
 
 ## TTS providers & API keys
 
-Keys live in the `keys` block of `.narrate/settings.local.json` (gitignored, so
-never committed). The fastest way to set one:
+Each provider has its own settings block under `tts` (voice, model, key, …), since
+they differ. The key lives in that block — `tts.<provider>.key` — in the gitignored
+`.narrate/settings.local.json`, so it's never committed. The fastest way to set one:
 
 ```bash
-narrate set-key gemini AIza…        # writes keys.gemini and switches the provider
-narrate set-key elevenlabs sk_…     # also sets a default ElevenLabs voice id
+narrate set-key gemini AIza…        # writes tts.gemini.key and switches the provider
+narrate set-key elevenlabs sk_…     # writes tts.elevenlabs.key and switches the provider
 ```
 
-| Provider     | `keys` entry              | Notes                                          |
-| ------------ | ------------------------- | ---------------------------------------------- |
-| `os`         | — (none)                  | **default**; the OS's built-in voice, no key (Linux needs `espeak`) |
-| `gemini`     | `keys.gemini`             | cloud voice; voices like `Kore`                |
-| `elevenlabs` | `keys.elevenlabs`         | cloud voice; `set-key` sets a default voice id, override in `tts.voice` |
-| `mock`       | — (none)                  | silent audio sized to the text; keyless dry run |
+| Provider     | Settings block   | Notes                                          |
+| ------------ | ---------------- | ---------------------------------------------- |
+| `os`         | — (none)         | **default**; the OS's built-in voice, no key (Linux needs `espeak`) |
+| `gemini`     | `tts.gemini`     | `key`, `voice` (e.g. `Kore`), `model`          |
+| `elevenlabs` | `tts.elevenlabs` | `key`, `voice` (an ElevenLabs voice id), `model` |
+| `mock`       | — (none)         | silent audio sized to the text; keyless dry run |
 
-For CI, the key can instead come from an env var: `NARRATE_GEMINI_API_KEY` /
-`NARRATE_ELEVENLABS_API_KEY` (or a custom name set via `tts.apiKeyEnv`). The
-`keys` block in the file takes precedence; the env var is a fallback.
+Only the **active** provider's block is used; the others can sit pre-filled (e.g.
+both keys saved) but unused until you switch `tts.provider`.
+
+For CI, a key can instead come from an env var: `NARRATE_GEMINI_API_KEY` /
+`NARRATE_ELEVENLABS_API_KEY` (or a custom name set via `tts.<provider>.apiKeyEnv`).
+The `key` in the file takes precedence; the env var is the fallback.

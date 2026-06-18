@@ -544,6 +544,10 @@
                         },
                         "label": {
                           "type": "string"
+                        },
+                        "hold": {
+                          "type": "number",
+                          "minimum": 0
                         }
                       },
                       "required": [

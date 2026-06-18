@@ -9,7 +9,7 @@ import type { RecordResult, Recorder } from "./recorder.js";
 interface NarrateOverlay {
   pointAt(selector: string, durMs: number): boolean;
   ripple(selector?: string | null): void;
-  highlight(selector: string, opts: { style?: string; label?: string }): boolean;
+  highlight(selector: string, opts: { style?: string; label?: string; hold?: number }): boolean;
   unhighlight(selector?: string | null): void;
 }
 declare global {
@@ -111,9 +111,15 @@ export class PlaywrightRecorder implements Recorder {
       for (const beat of scene.beats) {
         const durMs = Math.round((durations[beat.id] ?? 3) * 1000);
         targetEnd += durMs;
-        // Spotlight the beat's focus element for its whole duration.
+        // Briefly pulse the beat's focus element (auto-fades after holdMs).
         if (fx.highlight && beat.focus) {
-          await applyHighlight(page, beat.focus, beat.focusStyle ?? fx.style, beat.focusLabel);
+          await applyHighlight(
+            page,
+            beat.focus,
+            beat.focusStyle ?? fx.style,
+            fx.holdMs,
+            beat.focusLabel,
+          );
         }
         for (const step of beat.do) await runStep(page, step, fx);
         // Pad (or warn) so the beat ends exactly on the audio boundary.
@@ -175,14 +181,15 @@ async function applyHighlight(
   page: Page,
   selector: string,
   style: HighlightStyle,
+  holdMs: number,
   label?: string,
 ): Promise<void> {
   await page
-    .evaluate((o) => window.__narrate?.highlight(o.selector, { style: o.style, label: o.label }), {
-      selector,
-      style,
-      label,
-    })
+    .evaluate(
+      (o) =>
+        window.__narrate?.highlight(o.selector, { style: o.style, label: o.label, hold: o.hold }),
+      { selector, style, label, hold: holdMs },
+    )
     .catch(() => {});
 }
 
@@ -314,8 +321,15 @@ async function runStep(page: Page, step: Step, fx: OverlayConfig): Promise<void>
 
     // --- highlighting / pointer ---
     case "highlight":
-      if (fx.highlight)
-        await applyHighlight(page, step.selector, step.style ?? fx.style, step.label);
+      if (fx.highlight) {
+        await applyHighlight(
+          page,
+          step.selector,
+          step.style ?? fx.style,
+          step.hold ?? fx.holdMs,
+          step.label,
+        );
+      }
       return;
     case "unhighlight":
       if (fx.highlight) await clearHighlight(page, step.selector);

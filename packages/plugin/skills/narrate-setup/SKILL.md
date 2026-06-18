@@ -38,8 +38,9 @@ node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" <command> …
    ```bash
    node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" set-key <gemini|elevenlabs> <key>
    ```
-   For ElevenLabs this also sets a default voice id; override it later in
-   `tts.voice` (any ElevenLabs voice id). For Gemini, voices like `Kore` work.
+   This writes the key into that provider's block (`tts.gemini.key` /
+   `tts.elevenlabs.key`) and sets `tts.provider`. Tune the voice/model later under
+   `tts.gemini` (voices like `Kore`) or `tts.elevenlabs` (an ElevenLabs voice id).
 
 4. **Validate.** Confirm everything is ready:
    ```bash
@@ -54,8 +55,10 @@ node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" <command> …
 
 ## Notes
 
-- **Manual edit** is fine too: open `./.narrate/settings.local.json` and set
-  `tts.provider`, `tts.voice`, and the matching `keys.<provider>`.
+- **Manual edit** is fine too: open `./.narrate/settings.local.json`, set
+  `tts.provider`, and fill the matching block — `tts.<provider>.key` plus its
+  `voice`/`model`.
 - **CI:** instead of storing the key in the file, set `NARRATE_GEMINI_API_KEY` /
-  `NARRATE_ELEVENLABS_API_KEY` in the environment — the file's `keys` block takes
-  precedence, the env var is the fallback.
+  `NARRATE_ELEVENLABS_API_KEY` in the environment — the in-file `key` takes
+  precedence, the env var is the fallback (override the var name via
+  `tts.<provider>.apiKeyEnv`).

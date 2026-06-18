@@ -1,8 +1,9 @@
 import type { SynthOptions, SynthResult, TTSProvider } from "./provider.js";
 
 const DEFAULT_MODEL = "eleven_multilingual_v2";
-// "Rachel" — a default public voice id; override via config.tts.voice.
-const DEFAULT_VOICE = "21m00Tcm4TlvDq8ikWAM";
+// "Aria" — a current ElevenLabs default/premade voice (free-tier accessible via
+// API; the legacy "Rachel" id is deprecated). Override via config.tts.elevenlabs.voice.
+const DEFAULT_VOICE = "9BWtsMINqrJLrRacOk9x";
 
 /** ElevenLabs text-to-speech (returns MP3). Bring your own API key. */
 export class ElevenLabsProvider implements TTSProvider {

@@ -56,7 +56,13 @@ export async function render(scene: Scene, config: Config, opts: RenderOptions):
 
   // 1. TTS — synth each beat and measure its real duration.
   const provider = makeProvider(config);
-  log(`Generating narration with "${provider.name}" (voice: ${config.tts.voice})…`);
+  const activeVoice =
+    config.tts.provider === "gemini"
+      ? config.tts.gemini.voice
+      : config.tts.provider === "elevenlabs"
+        ? config.tts.elevenlabs.voice
+        : provider.name;
+  log(`Generating narration with "${provider.name}" (voice: ${activeVoice})…`);
   const durations: Durations = {};
   const wavs: string[] = [];
   for (const beat of scene.beats) {

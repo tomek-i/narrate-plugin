@@ -51,23 +51,29 @@ export function loadScene(cwd: string, scenePath: string): Scene {
   return scene;
 }
 
-/** Provider keys that live in the config file (vs. os/mock which need none). */
-type KeyedProvider = keyof Config["keys"];
-function keyedProvider(config: Config): KeyedProvider | null {
+/** Providers whose settings (incl. key) live in the config file. */
+export type KeyedProvider = "gemini" | "elevenlabs";
+
+/** The active provider's settings block, or null for os/mock (no key needed). */
+function providerSettings(config: Config): Config["tts"]["gemini"] | null {
   const p = config.tts.provider;
-  return p === "gemini" || p === "elevenlabs" ? p : null;
+  if (p === "gemini") return config.tts.gemini;
+  if (p === "elevenlabs") return config.tts.elevenlabs;
+  return null;
 }
 
 /** The fallback env var the provider's key is read from, or null if none. */
 export function apiKeyEnvName(config: Config): string | null {
-  return config.tts.apiKeyEnv ?? KEY_ENV[config.tts.provider];
+  const s = providerSettings(config);
+  if (!s) return null;
+  return s.apiKeyEnv ?? KEY_ENV[config.tts.provider];
 }
 
 /** Whether a usable key is available for the configured provider (file or env). */
 export function hasApiKey(config: Config): boolean {
-  const provider = keyedProvider(config);
-  if (!provider) return true; // os/mock need no key
-  if (config.keys[provider]?.trim()) return true;
+  const s = providerSettings(config);
+  if (!s) return true; // os/mock need no key
+  if (s.key?.trim()) return true;
   const envName = apiKeyEnvName(config);
   return Boolean(envName && process.env[envName]?.trim());
 }
@@ -75,16 +81,17 @@ export function hasApiKey(config: Config): boolean {
 /** Resolve the API key for the configured provider, with a clear error if missing.
  *  Precedence: the key in `.narrate/settings.local.json`, then the env fallback. */
 export function resolveApiKey(config: Config): string {
-  const provider = keyedProvider(config);
-  if (!provider) return ""; // os/mock
-  const fromFile = config.keys[provider]?.trim();
+  const s = providerSettings(config);
+  if (!s) return ""; // os/mock
+  const fromFile = s.key?.trim();
   if (fromFile) return fromFile;
   const envName = apiKeyEnvName(config);
   const fromEnv = envName ? process.env[envName]?.trim() : undefined;
   if (fromEnv) return fromEnv;
+  const provider = config.tts.provider;
   throw new Error(
-    `Missing API key for provider "${config.tts.provider}". ` +
-      `Add it under keys.${provider} in .narrate/${SETTINGS_FILE} ` +
+    `Missing API key for provider "${provider}". ` +
+      `Add it under tts.${provider}.key in .narrate/${SETTINGS_FILE} ` +
       `(run \`narrate set-key ${provider} <key>\`)${envName ? ` or set ${envName}` : ""}.`,
   );
 }

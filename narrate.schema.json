@@ -17,35 +17,53 @@
               ],
               "default": "os"
             },
-            "voice": {
-              "type": "string",
-              "default": "Kore"
+            "gemini": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "voice": {
+                  "type": "string",
+                  "default": "Kore"
+                },
+                "model": {
+                  "type": "string",
+                  "default": "gemini-2.5-flash-preview-tts"
+                },
+                "apiKeyEnv": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "default": {}
             },
-            "model": {
-              "type": "string"
-            },
-            "apiKeyEnv": {
-              "type": "string"
+            "elevenlabs": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "voice": {
+                  "type": "string",
+                  "default": "9BWtsMINqrJLrRacOk9x"
+                },
+                "model": {
+                  "type": "string",
+                  "default": "eleven_multilingual_v2"
+                },
+                "apiKeyEnv": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "default": {}
             }
           },
           "additionalProperties": false,
           "default": {
-            "provider": "os",
-            "voice": "Kore"
+            "provider": "os"
           }
-        },
-        "keys": {
-          "type": "object",
-          "properties": {
-            "gemini": {
-              "type": "string"
-            },
-            "elevenlabs": {
-              "type": "string"
-            }
-          },
-          "additionalProperties": false,
-          "default": {}
         },
         "output": {
           "type": "object",
@@ -109,6 +127,11 @@
               ],
               "default": "ring"
             },
+            "holdMs": {
+              "type": "number",
+              "minimum": 0,
+              "default": 3000
+            },
             "color": {
               "type": "string",
               "default": "#6366f1"
@@ -119,6 +142,7 @@
             "cursor": true,
             "highlight": true,
             "style": "ring",
+            "holdMs": 3000,
             "color": "#6366f1"
           }
         }

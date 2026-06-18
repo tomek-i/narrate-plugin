@@ -6,7 +6,7 @@ visual actions (`do`) shown while it plays.
 
 ```jsonc
 {
-  "$schema": "../narrate.scene.schema.json",  // optional, for editor autocomplete
+  "$schema": "https://raw.githubusercontent.com/tomek-i/narrate-plugin/main/narrate.scene.schema.json",  // optional, for editor autocomplete
   "name": "signup",                            // output file = <name>.mp4
   "site": "http://localhost:3000",
   "viewport": { "width": 1440, "height": 900 },
@@ -109,17 +109,24 @@ never block the actual interactions. Toggle them in [config `overlay`](./configu
 
 | Step | Fields |
 | --- | --- |
-| `highlight` | `selector`, `style` (`ring`\|`glow`\|`spotlight`; default from config), `label` (optional) — stays until `unhighlight` or the beat ends |
+| `highlight` | `selector`, `style` (`ring`\|`glow`\|`spotlight`; default from config), `label` (optional), `hold` (ms; default `overlay.holdMs` ≈ 3s, `0` = until `unhighlight`/beat end) |
 | `unhighlight` | `selector` (optional; omit to clear all) |
 | `point` | `selector` — glide the synthetic cursor onto an element (no click) |
 
-When `overlay.cursor` is on (default), `click`/`dblclick`/`hover`/`type`/`fill` and
-friends automatically glide the cursor to their target first (clicks add a ripple),
-so you rarely need an explicit `point`.
+Two roles, kept separate so the result doesn't feel random:
+- **Cursor = interaction.** With `overlay.cursor` on (default), `click`/`dblclick`/
+  `hover`/`type`/`fill`/… automatically glide the cursor to their target first
+  (clicks add a ripple). Let the cursor carry interactions consistently — you
+  rarely need an explicit `point`, and you shouldn't ring every field by hand.
+- **Highlights = brief accents.** A highlight **pulses for ~3s then fades back to
+  the clean page** (`overlay.holdMs`); it doesn't sit there for the whole beat.
+  Use it to point at what the narration is describing.
 
 For "the narration talks about X", prefer the beat-level **`focus`** /
-`focusStyle` / `focusLabel` fields (above) — they highlight X for the beat's whole
-duration and clear automatically.
+`focusStyle` / `focusLabel` fields (above): they pulse X briefly at the start of
+the beat and fade on their own. `focus` is best for an element already in view —
+if the beat scrolls X into view first, use a `highlight` step *after* the scroll so
+the pulse lands when X is actually visible.
 
 ### Convenience / escape hatch
 | Step | Fields |
