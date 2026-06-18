@@ -46,7 +46,7 @@
                 },
                 "voice": {
                   "type": "string",
-                  "default": "9BWtsMINqrJLrRacOk9x"
+                  "default": "bIHbv24MWmeRgasZH58o"
                 },
                 "model": {
                   "type": "string",

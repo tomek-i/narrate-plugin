@@ -147,7 +147,10 @@ export const ConfigSchema = z.object({
       elevenlabs: z
         .object({
           key: z.string().optional(),
-          voice: z.string().default("9BWtsMINqrJLrRacOk9x"), // "Aria" — current default voice
+          // "Will" — a default voice confirmed usable on the free API tier. (Many
+          // other "default" ids, e.g. Aria, 402 on free plans.) Run `narrate voices`
+          // to list what your key can use.
+          voice: z.string().default("bIHbv24MWmeRgasZH58o"),
           model: z.string().default("eleven_multilingual_v2"),
           /** Env var to read the key from if `key` is empty (CI fallback). */
           apiKeyEnv: z.string().optional(),

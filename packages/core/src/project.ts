@@ -93,6 +93,36 @@ export function setKey(
   return path;
 }
 
+/**
+ * Set the voice for the currently-active provider (gemini/elevenlabs) in
+ * `.narrate/settings.local.json`. Used after `narrate voices` to lock in a voice
+ * the key can actually use.
+ */
+export function setVoice(
+  cwd: string,
+  voice: string,
+  log: (msg: string) => void = console.log,
+): string {
+  const path = settingsPath(cwd);
+  const raw: Record<string, unknown> = existsSync(path)
+    ? JSON.parse(readFileSync(path, "utf8"))
+    : settingsTemplate();
+  const tts = { ...(raw.tts as Record<string, unknown> | undefined) };
+  const provider = (tts.provider as string) ?? "os";
+  if (provider !== "gemini" && provider !== "elevenlabs") {
+    throw new Error(
+      `Active provider is "${provider}", which has no configurable voice id. Switch first with \`narrate set-key <gemini|elevenlabs> <key>\`.`,
+    );
+  }
+  const block = { ...(tts[provider] as Record<string, unknown> | undefined) };
+  block.voice = voice.trim();
+  tts[provider] = block;
+  raw.tts = tts;
+  writeFileSync(path, `${JSON.stringify(raw, null, 2)}\n`);
+  log(`set tts.${provider}.voice="${voice.trim()}" in ${path}`);
+  return path;
+}
+
 export interface CheckResult {
   ok: boolean;
   lines: string[];

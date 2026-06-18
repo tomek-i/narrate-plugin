@@ -2,15 +2,16 @@
 import { Command } from "commander";
 import { loadConfig, loadScene } from "./config.js";
 import { render } from "./pipeline.js";
-import { checkEnv, initProject, setKey } from "./project.js";
+import { checkEnv, initProject, setKey, setVoice } from "./project.js";
 import { setup } from "./setup.js";
+import { listVoices } from "./tts/voices.js";
 
 const program = new Command();
 
 program
   .name("narrate")
   .description("Generate a narrated walkthrough video of a website.")
-  .version("0.19.0");
+  .version("0.20.0");
 
 program
   .command("render")
@@ -52,6 +53,29 @@ program
       throw new Error(`Unknown provider "${provider}" (expected gemini or elevenlabs).`);
     }
     setKey(process.cwd(), provider, key, (m) => console.log(m));
+  });
+
+program
+  .command("voices")
+  .description("List TTS voices your configured key can use (helps pick a free-tier voice).")
+  .option("-c, --config <file>", "config file (default: .narrate/settings.local.json)")
+  .action(async (o) => {
+    const { provider, voices, note } = await listVoices(loadConfig(process.cwd(), o.config));
+    if (note) console.log(note);
+    for (const v of voices) {
+      console.log(`${v.id}  ${v.name}${v.category ? `  (${v.category})` : ""}`);
+    }
+    if (provider === "elevenlabs" && voices.length) {
+      console.log("\nLock one in with: narrate set-voice <voice_id>");
+    }
+  });
+
+program
+  .command("set-voice")
+  .description("Set the active provider's voice in .narrate/settings.local.json.")
+  .argument("<voice>", "voice id (elevenlabs) or name (gemini)")
+  .action((voice: string) => {
+    setVoice(process.cwd(), voice, (m) => console.log(m));
   });
 
 program

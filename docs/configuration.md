@@ -21,7 +21,7 @@ a cloud voice with `narrate set-key` (or the `/narrate-setup` skill).
     },
     "elevenlabs": {                            // settings for the elevenlabs provider (differ from gemini's)
       "key": "",
-      "voice": "9BWtsMINqrJLrRacOk9x",         // an ElevenLabs voice id ("Aria", a default voice)
+      "voice": "bIHbv24MWmeRgasZH58o",         // an ElevenLabs voice id ("Will"; free-tier-safe). `narrate voices` lists usable ones
       "model": "eleven_multilingual_v2"
     }
   },
@@ -92,6 +92,12 @@ narrate set-key elevenlabs sk_…     # writes tts.elevenlabs.key and switches t
 
 Only the **active** provider's block is used; the others can sit pre-filled (e.g.
 both keys saved) but unused until you switch `tts.provider`.
+
+**ElevenLabs free tier & voices.** Free plans can only use *premade* voices via the
+API; *library* (shared/community) voices return **HTTP 402**. Voice availability
+varies by account, so don't trust a hard-coded id — run `narrate voices` to list
+exactly what your key can use (look for `premade`), then `narrate set-voice <id>`.
+The default (`bIHbv24MWmeRgasZH58o`, "Will") is a premade voice that's free-tier-safe.
 
 For CI, a key can instead come from an env var: `NARRATE_GEMINI_API_KEY` /
 `NARRATE_ELEVENLABS_API_KEY` (or a custom name set via `tts.<provider>.apiKeyEnv`).

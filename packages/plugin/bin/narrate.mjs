@@ -7227,8 +7227,10 @@ var ConfigSchema = external_exports.object({
     }).default({}),
     elevenlabs: external_exports.object({
       key: external_exports.string().optional(),
-      voice: external_exports.string().default("9BWtsMINqrJLrRacOk9x"),
-      // "Aria" — current default voice
+      // "Will" — a default voice confirmed usable on the free API tier. (Many
+      // other "default" ids, e.g. Aria, 402 on free plans.) Run `narrate voices`
+      // to list what your key can use.
+      voice: external_exports.string().default("bIHbv24MWmeRgasZH58o"),
       model: external_exports.string().default("eleven_multilingual_v2"),
       /** Env var to read the key from if `key` is empty (CI fallback). */
       apiKeyEnv: external_exports.string().optional()
@@ -7982,7 +7984,7 @@ async function smoothScrollTo(page, targetY, overMs) {
 
 // src/tts/elevenlabs.ts
 var DEFAULT_MODEL = "eleven_multilingual_v2";
-var DEFAULT_VOICE = "9BWtsMINqrJLrRacOk9x";
+var DEFAULT_VOICE = "bIHbv24MWmeRgasZH58o";
 var ElevenLabsProvider = class {
   constructor(key, voice = DEFAULT_VOICE, model = DEFAULT_MODEL) {
     this.key = key;
@@ -8000,7 +8002,16 @@ var ElevenLabsProvider = class {
       headers: { "xi-api-key": this.key, "Content-Type": "application/json" },
       body: JSON.stringify({ text, model_id: this.model })
     });
-    if (!res.ok) throw new Error(`ElevenLabs TTS HTTP ${res.status}: ${await res.text()}`);
+    if (!res.ok) {
+      const body = await res.text();
+      if (res.status === 402 || res.status === 401 || res.status === 403) {
+        throw new Error(
+          `ElevenLabs HTTP ${res.status} for voice "${voiceId}": ${body}
+On the free plan only certain (premade) voices work via the API. Run \`narrate voices\` to list voices your key can use, then \`narrate set-voice <id>\` (or set tts.elevenlabs.voice). Or use \`--provider os\` for the keyless OS voice.`
+        );
+      }
+      throw new Error(`ElevenLabs TTS HTTP ${res.status}: ${body}`);
+    }
     const audio = Buffer.from(await res.arrayBuffer());
     return { audio, ext: "mp3" };
   }
@@ -8346,6 +8357,25 @@ function setKey(cwd, provider, key, log = console.log) {
   log(`set tts.${provider}.key and tts.provider="${provider}" in ${path}`);
   return path;
 }
+function setVoice(cwd, voice, log = console.log) {
+  const path = settingsPath(cwd);
+  const raw = existsSync3(path) ? JSON.parse(readFileSync3(path, "utf8")) : settingsTemplate();
+  const tts = { ...raw.tts };
+  const provider = tts.provider ?? "os";
+  if (provider !== "gemini" && provider !== "elevenlabs") {
+    throw new Error(
+      `Active provider is "${provider}", which has no configurable voice id. Switch first with \`narrate set-key <gemini|elevenlabs> <key>\`.`
+    );
+  }
+  const block = { ...tts[provider] };
+  block.voice = voice.trim();
+  tts[provider] = block;
+  raw.tts = tts;
+  writeFileSync4(path, `${JSON.stringify(raw, null, 2)}
+`);
+  log(`set tts.${provider}.voice="${voice.trim()}" in ${path}`);
+  return path;
+}
 function checkEnv(config) {
   const lines = [];
   let ok = true;
@@ -8375,9 +8405,43 @@ function checkEnv(config) {
   return { ok, lines };
 }
 
+// src/tts/voices.ts
+async function listVoices(config) {
+  const provider = config.tts.provider;
+  if (provider === "elevenlabs") {
+    const res = await fetch("https://api.elevenlabs.io/v1/voices", {
+      headers: { "xi-api-key": resolveApiKey(config) }
+    });
+    if (!res.ok) throw new Error(`ElevenLabs voices HTTP ${res.status}: ${await res.text()}`);
+    const json = await res.json();
+    const voices = (json.voices ?? []).map((v) => ({
+      id: v.voice_id,
+      name: v.name,
+      category: v.category
+    }));
+    return {
+      provider,
+      voices,
+      note: "Voices your key can use. 'premade' voices are the safe choice on the free tier."
+    };
+  }
+  if (provider === "gemini") {
+    return {
+      provider,
+      voices: [],
+      note: "Gemini uses named prebuilt voices (e.g. Kore, Puck, Charon, Aoede, Fenrir, Leda). See https://ai.google.dev/gemini-api/docs/speech-generation"
+    };
+  }
+  return {
+    provider,
+    voices: [],
+    note: `Provider "${provider}" needs no voice list \u2014 set tts.provider to gemini or elevenlabs first.`
+  };
+}
+
 // src/cli.ts
 var program2 = new Command();
-program2.name("narrate").description("Generate a narrated walkthrough video of a website.").version("0.19.0");
+program2.name("narrate").description("Generate a narrated walkthrough video of a website.").version("0.20.0");
 program2.command("render").description("TTS \u2192 record \u2192 mux into one narrated video.").requiredOption("-s, --scene <file>", "scene JSON file").option("-c, --config <file>", "config file (default: .narrate/settings.local.json)").option("-o, --out <dir>", "output directory (overrides config output.dir)").option("--provider <name>", "override TTS provider (gemini|elevenlabs|os|mock)").option("--voice <name>", "override voice").action(async (o) => {
   const cwd = process.cwd();
   const config = loadConfig(cwd, o.config);
@@ -8400,6 +8464,19 @@ program2.command("set-key").description("Save an API key into .narrate/settings.
     throw new Error(`Unknown provider "${provider}" (expected gemini or elevenlabs).`);
   }
   setKey(process.cwd(), provider, key, (m) => console.log(m));
+});
+program2.command("voices").description("List TTS voices your configured key can use (helps pick a free-tier voice).").option("-c, --config <file>", "config file (default: .narrate/settings.local.json)").action(async (o) => {
+  const { provider, voices, note } = await listVoices(loadConfig(process.cwd(), o.config));
+  if (note) console.log(note);
+  for (const v of voices) {
+    console.log(`${v.id}  ${v.name}${v.category ? `  (${v.category})` : ""}`);
+  }
+  if (provider === "elevenlabs" && voices.length) {
+    console.log("\nLock one in with: narrate set-voice <voice_id>");
+  }
+});
+program2.command("set-voice").description("Set the active provider's voice in .narrate/settings.local.json.").argument("<voice>", "voice id (elevenlabs) or name (gemini)").action((voice) => {
+  setVoice(process.cwd(), voice, (m) => console.log(m));
 });
 program2.command("check").description("Validate the environment (ffmpeg, config, TTS key). Exits non-zero if not ready.").option("-c, --config <file>", "config file (default: .narrate/settings.local.json)").action((o) => {
   const cwd = process.cwd();

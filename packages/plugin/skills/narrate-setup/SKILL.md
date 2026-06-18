@@ -42,12 +42,22 @@ node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" <command> …
    `tts.elevenlabs.key`) and sets `tts.provider`. Tune the voice/model later under
    `tts.gemini` (voices like `Kore`) or `tts.elevenlabs` (an ElevenLabs voice id).
 
+   **ElevenLabs voice (important on the free plan):** free plans can only use
+   *premade* voices via the API — *library* voices return HTTP 402, and which ids
+   work varies by account. List what the key can use and lock one in:
+   ```bash
+   node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" voices        # shows ids + names (+ category)
+   node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" set-voice <voice_id>   # prefer a "premade" one
+   ```
+
 4. **Validate.** Confirm everything is ready:
    ```bash
    node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" check
    ```
    Expect `RESULT: PASS`. If it prints `ffmpeg: MISSING`, give install instructions
-   (ffmpeg + ffprobe must be on PATH — the one manual dependency).
+   (ffmpeg + ffprobe must be on PATH — the one manual dependency). If a render later
+   fails with an ElevenLabs **402**, the chosen voice isn't free-tier usable — run
+   `voices` and `set-voice` to switch to a `premade` one.
 
 5. **Report.** Tell the user the active provider/voice and that the key is stored in
    the gitignored `./.narrate/settings.local.json`, so future runs of
