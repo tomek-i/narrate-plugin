@@ -31,29 +31,33 @@ type HighlightStyle = "ring" | "glow" | "spotlight";
  * machine (Edge, then Chrome) so we avoid downloading Playwright's Chromium.
  * Falls back to downloading Chromium only if no system browser is found.
  */
-async function launchBrowser(chromium: BrowserType): Promise<Browser> {
+export async function launchBrowser(
+  chromium: BrowserType,
+  opts: { headed?: boolean } = {},
+): Promise<Browser> {
+  const headless = !opts.headed;
   const attempts: Array<{ channel?: "msedge" | "chrome" }> = [
     {}, // Playwright's Chromium, if already downloaded
     { channel: "msedge" }, // preinstalled on Windows
     { channel: "chrome" },
   ];
   let lastErr: unknown;
-  for (const opts of attempts) {
+  for (const a of attempts) {
     try {
-      return await chromium.launch(opts);
+      return await chromium.launch({ ...a, headless });
     } catch (err) {
       lastErr = err;
     }
   }
   try {
     installChromium();
-    return await chromium.launch();
+    return await chromium.launch({ headless });
   } catch {
     throw lastErr;
   }
 }
 
-async function loadChromium() {
+export async function loadChromium() {
   try {
     const pw = await import("playwright");
     return pw.chromium;

@@ -22,7 +22,7 @@ function settingsTemplate(): Record<string, unknown> {
 }
 
 /** Append a line to (or create) the project .gitignore if it's not already there. */
-function ensureGitignore(cwd: string, entry: string): void {
+export function ensureGitignore(cwd: string, entry: string): void {
   const p = join(cwd, ".gitignore");
   const existing = existsSync(p) ? readFileSync(p, "utf8") : "";
   if (existing.split(/\r?\n/).some((l) => l.trim() === entry)) return;

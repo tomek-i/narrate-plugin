@@ -58,9 +58,14 @@ starts already authenticated — the login screen is never visited or recorded, 
 no credential is involved at render time.
 
 ```bash
-# Capture it once: a browser opens, you log in, then close the window.
-npx playwright open --save-storage=.narrate/auth.json https://app.example.com/login
+# Capture it once: a browser opens, you log in, then close the window to save.
+narrate auth https://app.example.com/login            # writes .narrate/auth.json
+narrate auth https://app.example.com/login --out .narrate/admin.json   # custom path
 ```
+
+`auth` opens a real browser, waits while you log in, and saves the session the
+moment you **close the window** — then it returns, so it slots straight into an
+automated flow. The session file lands in `.narrate/` (gitignored) by default.
 
 ```jsonc
 {

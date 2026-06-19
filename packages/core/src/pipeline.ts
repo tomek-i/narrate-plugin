@@ -89,7 +89,7 @@ export async function render(scene: Scene, config: Config, opts: RenderOptions):
     const statePath = resolve(opts.cwd, auth.storageState);
     if (!existsSync(statePath)) {
       throw new Error(
-        `Auth storage state not found: ${statePath}. Capture it once by logging in yourself, e.g. \`npx playwright open --save-storage=${auth.storageState} ${scene.site}\`, then re-run. (Keep that file gitignored — it holds session tokens.)`,
+        `Auth storage state not found: ${statePath}. Capture it once with \`narrate auth <login-url> --out ${auth.storageState}\` (a browser opens; log in, then close it), then re-run. (The file holds session tokens — keep it gitignored.)`,
       );
     }
     auth = { storageState: statePath };

@@ -3057,6 +3057,14 @@ var {
   Help
 } = import_index.default;
 
+// src/auth.ts
+import { mkdirSync as mkdirSync2 } from "fs";
+import { dirname as dirname3, isAbsolute, relative, resolve as resolve2 } from "path";
+
+// src/project.ts
+import { existsSync as existsSync2, mkdirSync, readFileSync as readFileSync2, writeFileSync as writeFileSync2 } from "fs";
+import { join } from "path";
+
 // src/config.ts
 import { existsSync, readFileSync } from "fs";
 import { dirname, resolve } from "path";
@@ -7359,11 +7367,6 @@ function resolveApiKey(config) {
   );
 }
 
-// src/pipeline.ts
-import { copyFileSync, existsSync as existsSync3, mkdirSync, writeFileSync as writeFileSync3 } from "fs";
-import { join as join4, resolve as resolve2 } from "path";
-import { pathToFileURL as pathToFileURL2 } from "url";
-
 // src/mux/ffmpeg.ts
 import { execFileSync, spawnSync } from "child_process";
 import { writeFileSync } from "fs";
@@ -7495,8 +7498,106 @@ function hasAudioStream(file) {
   return out.trim().length > 0;
 }
 
+// src/project.ts
+var SCHEMA_URL = "https://raw.githubusercontent.com/tomek-i/narrate-plugin/main/narrate.schema.json";
+function settingsTemplate() {
+  return {
+    $schema: SCHEMA_URL,
+    ...ConfigSchema.parse({})
+  };
+}
+function ensureGitignore(cwd, entry) {
+  const p = join(cwd, ".gitignore");
+  const existing = existsSync2(p) ? readFileSync2(p, "utf8") : "";
+  if (existing.split(/\r?\n/).some((l) => l.trim() === entry)) return;
+  const prefix = existing && !existing.endsWith("\n") ? "\n" : "";
+  writeFileSync2(p, `${existing}${prefix}${entry}
+`);
+}
+function initProject(cwd, log = console.log) {
+  const dir = join(cwd, ".narrate");
+  mkdirSync(dir, { recursive: true });
+  const path = settingsPath(cwd);
+  let created = false;
+  if (existsSync2(path)) {
+    log(`exists: ${path}`);
+  } else {
+    writeFileSync2(path, `${JSON.stringify(settingsTemplate(), null, 2)}
+`);
+    created = true;
+    log(`created: ${path}`);
+  }
+  ensureGitignore(cwd, ".narrate/");
+  log(`\`.narrate/\` is gitignored. Edit .narrate/${SETTINGS_FILE} (config + keys).`);
+  return { created, path };
+}
+function setKey(cwd, provider, key, log = console.log) {
+  const dir = join(cwd, ".narrate");
+  mkdirSync(dir, { recursive: true });
+  const path = settingsPath(cwd);
+  const raw = existsSync2(path) ? JSON.parse(readFileSync2(path, "utf8")) : settingsTemplate();
+  const tts = { ...raw.tts };
+  const block = { ...tts[provider] };
+  block.key = key.trim();
+  tts[provider] = block;
+  tts.provider = provider;
+  raw.tts = tts;
+  writeFileSync2(path, `${JSON.stringify(raw, null, 2)}
+`);
+  ensureGitignore(cwd, ".narrate/");
+  log(`set tts.${provider}.key and tts.provider="${provider}" in ${path}`);
+  return path;
+}
+function setVoice(cwd, voice, log = console.log) {
+  const path = settingsPath(cwd);
+  const raw = existsSync2(path) ? JSON.parse(readFileSync2(path, "utf8")) : settingsTemplate();
+  const tts = { ...raw.tts };
+  const provider = tts.provider ?? "os";
+  if (provider !== "gemini" && provider !== "elevenlabs") {
+    throw new Error(
+      `Active provider is "${provider}", which has no configurable voice id. Switch first with \`narrate set-key <gemini|elevenlabs> <key>\`.`
+    );
+  }
+  const block = { ...tts[provider] };
+  block.voice = voice.trim();
+  tts[provider] = block;
+  raw.tts = tts;
+  writeFileSync2(path, `${JSON.stringify(raw, null, 2)}
+`);
+  log(`set tts.${provider}.voice="${voice.trim()}" in ${path}`);
+  return path;
+}
+function checkEnv(config) {
+  const lines = [];
+  let ok = true;
+  try {
+    ensureFfmpeg();
+    lines.push("ffmpeg:  OK");
+  } catch (err) {
+    ok = false;
+    lines.push(`ffmpeg:  MISSING \u2014 ${err instanceof Error ? err.message : err}`);
+  }
+  const provider = config.tts.provider;
+  const voice = provider === "gemini" ? config.tts.gemini.voice : provider === "elevenlabs" ? config.tts.elevenlabs.voice : "\u2014";
+  lines.push(
+    `config:  provider=${provider}, voice=${voice}, format=${config.output.format}, crf=${config.output.crf}`
+  );
+  if (provider === "os" || provider === "mock") {
+    lines.push(`TTS key: not required (provider "${provider}")`);
+  } else if (hasApiKey(config)) {
+    lines.push(`TTS key: OK (tts.${provider}.key set in .narrate/${SETTINGS_FILE})`);
+  } else {
+    ok = false;
+    lines.push(
+      `TTS key: MISSING \u2014 add it under tts.${provider}.key in .narrate/${SETTINGS_FILE} (or run \`narrate set-key ${provider} <key>\`; or use --provider os for the OS voice / mock for silent)`
+    );
+  }
+  lines.push(`RESULT:  ${ok ? "PASS" : "FAIL"}`);
+  return { ok, lines };
+}
+
 // src/record/playwright.ts
-import { join as join2 } from "path";
+import { join as join3 } from "path";
 
 // src/env.ts
 function interpolateEnv(text, env = process.env) {
@@ -7516,14 +7617,14 @@ function interpolateEnv(text, env = process.env) {
 
 // src/setup.ts
 import { execFileSync as execFileSync2 } from "child_process";
-import { existsSync as existsSync2 } from "fs";
-import { dirname as dirname2, join } from "path";
+import { existsSync as existsSync3 } from "fs";
+import { dirname as dirname2, join as join2 } from "path";
 import { fileURLToPath } from "url";
 var isWin = process.platform === "win32";
 function packageRoot() {
   let dir = dirname2(fileURLToPath(import.meta.url));
   for (let i = 0; i < 8; i++) {
-    if (existsSync2(join(dir, "package.json"))) return dir;
+    if (existsSync3(join2(dir, "package.json"))) return dir;
     const parent = dirname2(dir);
     if (parent === dir) break;
     dir = parent;
@@ -7553,9 +7654,9 @@ function installPlaywrightPackage(log = console.log) {
 }
 function installChromium(log = console.log) {
   const root = packageRoot();
-  const cli = join(root, "node_modules", "playwright", "cli.js");
+  const cli = join2(root, "node_modules", "playwright", "cli.js");
   log("Downloading the Chromium browser\u2026");
-  if (existsSync2(cli)) {
+  if (existsSync3(cli)) {
     execFileSync2(process.execPath, [cli, "install", "chromium"], { cwd: root, stdio: "inherit" });
   } else {
     npm(["exec", "--", "playwright", "install", "chromium"], root);
@@ -7729,7 +7830,8 @@ var OVERLAY_SCRIPT = String.raw`
 `;
 
 // src/record/playwright.ts
-async function launchBrowser(chromium) {
+async function launchBrowser(chromium, opts = {}) {
+  const headless = !opts.headed;
   const attempts = [
     {},
     // Playwright's Chromium, if already downloaded
@@ -7738,16 +7840,16 @@ async function launchBrowser(chromium) {
     { channel: "chrome" }
   ];
   let lastErr;
-  for (const opts of attempts) {
+  for (const a of attempts) {
     try {
-      return await chromium.launch(opts);
+      return await chromium.launch({ ...a, headless });
     } catch (err) {
       lastErr = err;
     }
   }
   try {
     installChromium();
-    return await chromium.launch();
+    return await chromium.launch({ headless });
   } catch {
     throw lastErr;
   }
@@ -7775,7 +7877,7 @@ var PlaywrightRecorder = class {
     const browser = await launchBrowser(chromium);
     const context = await browser.newContext({
       viewport: size,
-      recordVideo: { dir: join2(this.outDir, "video"), size },
+      recordVideo: { dir: join3(this.outDir, "video"), size },
       deviceScaleFactor: 1,
       // Emulate the OS/browser color scheme (the standard `prefers-color-scheme`).
       // Sites with a manual toggle should drive it with a click/menu step instead.
@@ -8028,6 +8130,69 @@ async function smoothScrollTo(page, targetY, overMs) {
   );
 }
 
+// src/auth.ts
+function underNarrateDir(cwd, abs) {
+  const rel = relative(resolve2(cwd, ".narrate"), abs);
+  return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
+}
+async function captureAuth(opts) {
+  const log = (m) => opts.onLog?.(m);
+  const out = resolve2(opts.cwd, opts.out);
+  mkdirSync2(dirname3(out), { recursive: true });
+  if (!await hasPlaywright()) {
+    log("First run: provisioning the headless browser (one-time)\u2026");
+    installPlaywrightPackage(log);
+    installChromium(log);
+  }
+  const chromium = await loadChromium();
+  const browser = await launchBrowser(chromium, { headed: true });
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await page.goto(opts.url, { waitUntil: "domcontentloaded" }).catch(() => {
+  });
+  log(`Opened ${opts.url}. Log in, then CLOSE THE BROWSER WINDOW to save the session\u2026`);
+  let captured = false;
+  const snapshot = async () => {
+    try {
+      await context.storageState({ path: out });
+      captured = true;
+    } catch {
+    }
+  };
+  const timer = setInterval(snapshot, 750);
+  context.on("page", (p) => p.on("load", snapshot));
+  page.on("load", snapshot);
+  await new Promise((res) => {
+    browser.on("disconnected", () => res());
+    context.on("close", () => res());
+  });
+  clearInterval(timer);
+  await snapshot();
+  try {
+    await browser.close();
+  } catch {
+  }
+  if (!captured) {
+    throw new Error(
+      `No session was captured for ${out}. The browser closed before any state could be saved \u2014 re-run \`narrate auth ${opts.url}\` and close it after you're logged in.`
+    );
+  }
+  if (underNarrateDir(opts.cwd, out)) {
+    ensureGitignore(opts.cwd, ".narrate/");
+  } else {
+    const rel = relative(opts.cwd, out).split("\\").join("/");
+    ensureGitignore(opts.cwd, rel);
+    log(`Added ${rel} to .gitignore (it holds session tokens).`);
+  }
+  log(`Saved session \u2192 ${out}`);
+  return out;
+}
+
+// src/pipeline.ts
+import { copyFileSync, existsSync as existsSync4, mkdirSync as mkdirSync3, writeFileSync as writeFileSync4 } from "fs";
+import { join as join5, resolve as resolve3 } from "path";
+import { pathToFileURL as pathToFileURL2 } from "url";
+
 // src/tts/elevenlabs.ts
 var DEFAULT_MODEL = "eleven_multilingual_v2";
 var DEFAULT_VOICE = "bIHbv24MWmeRgasZH58o";
@@ -8140,9 +8305,9 @@ var MockProvider = class {
 
 // src/tts/os.ts
 import { execFileSync as execFileSync3 } from "child_process";
-import { mkdtempSync, readFileSync as readFileSync2, rmSync, writeFileSync as writeFileSync2 } from "fs";
+import { mkdtempSync, readFileSync as readFileSync3, rmSync, writeFileSync as writeFileSync3 } from "fs";
 import { tmpdir } from "os";
-import { join as join3 } from "path";
+import { join as join4 } from "path";
 var OsTtsProvider = class {
   name = "os";
   warned = false;
@@ -8172,18 +8337,18 @@ function run(cmd, args) {
   execFileSync3(cmd, args, { stdio: "ignore" });
 }
 function scratch() {
-  const dir = mkdtempSync(join3(tmpdir(), "narrate-os-"));
+  const dir = mkdtempSync(join4(tmpdir(), "narrate-os-"));
   return {
     dir,
-    txt: join3(dir, "in.txt"),
-    out: (ext) => join3(dir, `out.${ext}`),
+    txt: join4(dir, "in.txt"),
+    out: (ext) => join4(dir, `out.${ext}`),
     clean: () => rmSync(dir, { recursive: true, force: true })
   };
 }
 function windows(text, voice) {
   const s = scratch();
   const wav = s.out("wav");
-  writeFileSync2(s.txt, text, "utf8");
+  writeFileSync3(s.txt, text, "utf8");
   const selectVoice = voice ? `$s.SelectVoice('${voice.replace(/'/g, "''")}');` : "";
   const ps = [
     "Add-Type -AssemblyName System.Speech;",
@@ -8195,7 +8360,7 @@ function windows(text, voice) {
   const args = ["-NoProfile", "-NonInteractive", "-Command", ps];
   const sysRoot = process.env.SystemRoot ?? process.env.windir ?? "C:\\Windows";
   const candidates = [
-    join3(sysRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
+    join4(sysRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
     "powershell",
     "pwsh"
   ];
@@ -8211,7 +8376,7 @@ function windows(text, voice) {
     }
   }
   if (!ran) throw lastErr ?? new Error("no PowerShell found");
-  const audio = readFileSync2(wav);
+  const audio = readFileSync3(wav);
   s.clean();
   if (audio.length <= 44) throw new Error("PowerShell TTS produced an empty WAV");
   return { audio, ext: "wav" };
@@ -8219,18 +8384,18 @@ function windows(text, voice) {
 function macos(text, voice) {
   const s = scratch();
   const aiff = s.out("aiff");
-  writeFileSync2(s.txt, text, "utf8");
+  writeFileSync3(s.txt, text, "utf8");
   const args = ["-f", s.txt, "-o", aiff];
   if (voice) args.unshift("-v", voice);
   run("say", args);
-  const audio = readFileSync2(aiff);
+  const audio = readFileSync3(aiff);
   s.clean();
   return { audio, ext: "aiff" };
 }
 function linux(text, voice) {
   const s = scratch();
   const wav = s.out("wav");
-  writeFileSync2(s.txt, text, "utf8");
+  writeFileSync3(s.txt, text, "utf8");
   const bin = ["espeak-ng", "espeak"].find((b) => {
     try {
       run(b, ["--version"]);
@@ -8243,7 +8408,7 @@ function linux(text, voice) {
   const args = ["-w", wav, "-f", s.txt];
   if (voice) args.push("-v", voice);
   run(bin, args);
-  const audio = readFileSync2(wav);
+  const audio = readFileSync3(wav);
   s.clean();
   return { audio, ext: "wav" };
 }
@@ -8297,7 +8462,7 @@ function buildVtt(beats, durations, leadInSec = 0) {
 // src/pipeline.ts
 function resolveSite(site, cwd) {
   if (/^(https?|file):\/\//i.test(site)) return site;
-  return pathToFileURL2(resolve2(cwd, site)).href;
+  return pathToFileURL2(resolve3(cwd, site)).href;
 }
 async function render(scene, config, opts) {
   const logLines = [];
@@ -8314,9 +8479,9 @@ async function render(scene, config, opts) {
     installPlaywrightPackage(log);
     installChromium(log);
   }
-  const outDir = resolve2(opts.cwd, config.output.dir);
-  const audioDir = join4(outDir, "audio");
-  mkdirSync(audioDir, { recursive: true });
+  const outDir = resolve3(opts.cwd, config.output.dir);
+  const audioDir = join5(outDir, "audio");
+  mkdirSync3(audioDir, { recursive: true });
   const provider = makeProvider(config);
   const activeVoice = config.tts.provider === "gemini" ? config.tts.gemini.voice : config.tts.provider === "elevenlabs" ? config.tts.elevenlabs.voice : provider.name;
   log(`Generating narration with "${provider.name}" (voice: ${activeVoice})\u2026`);
@@ -8324,7 +8489,7 @@ async function render(scene, config, opts) {
   const wavs = [];
   for (const beat of scene.beats) {
     const res = await provider.synth(beat.say, { voice: beat.voice });
-    const wavPath = join4(audioDir, `${beat.id}.wav`);
+    const wavPath = join5(audioDir, `${beat.id}.wav`);
     normalizeToWav(res.audio, wavPath);
     durations[beat.id] = probeDuration(wavPath);
     wavs.push(wavPath);
@@ -8334,10 +8499,10 @@ async function render(scene, config, opts) {
   const recorder = new PlaywrightRecorder(outDir, config);
   let auth = scene.auth;
   if (auth?.storageState) {
-    const statePath = resolve2(opts.cwd, auth.storageState);
-    if (!existsSync3(statePath)) {
+    const statePath = resolve3(opts.cwd, auth.storageState);
+    if (!existsSync4(statePath)) {
       throw new Error(
-        `Auth storage state not found: ${statePath}. Capture it once by logging in yourself, e.g. \`npx playwright open --save-storage=${auth.storageState} ${scene.site}\`, then re-run. (Keep that file gitignored \u2014 it holds session tokens.)`
+        `Auth storage state not found: ${statePath}. Capture it once with \`narrate auth <login-url> --out ${auth.storageState}\` (a browser opens; log in, then close it), then re-run. (The file holds session tokens \u2014 keep it gitignored.)`
       );
     }
     auth = { storageState: statePath };
@@ -8348,10 +8513,10 @@ async function render(scene, config, opts) {
   if (!videoPath) throw new Error("Recording produced no video file.");
   log(`Recorded video: ${videoPath} (lead-in ${(leadInMs / 1e3).toFixed(3)}s)`);
   log("Muxing narration onto video\u2026");
-  const narration = join4(outDir, "narration.wav");
-  concatWavs(wavs, narration, join4(outDir, "audio.txt"));
+  const narration = join5(outDir, "narration.wav");
+  concatWavs(wavs, narration, join5(outDir, "audio.txt"));
   log(`Combined narration: ${narration} (mean volume ${meanVolume(narration) ?? "n/a"})`);
-  const finalOut = join4(outDir, `${scene.name}.${config.output.format}`);
+  const finalOut = join5(outDir, `${scene.name}.${config.output.format}`);
   const mux = muxNarration({
     video: videoPath,
     audio: narration,
@@ -8376,13 +8541,13 @@ ${mux.stderr.trim().split("\n").slice(-12).join("\n")}`);
     );
   }
   if (config.output.vtt) {
-    const vttPath = join4(outDir, `${scene.name}.vtt`);
-    writeFileSync3(vttPath, buildVtt(scene.beats, durations, leadInMs / 1e3));
+    const vttPath = join5(outDir, `${scene.name}.vtt`);
+    writeFileSync4(vttPath, buildVtt(scene.beats, durations, leadInMs / 1e3));
     log(`Captions: ${vttPath}`);
   }
   if (config.output.keepScene && opts.scenePath) {
-    const src = resolve2(opts.cwd, opts.scenePath);
-    const dest = join4(outDir, `${scene.name}.scene.json`);
+    const src = resolve3(opts.cwd, opts.scenePath);
+    const dest = join5(outDir, `${scene.name}.scene.json`);
     if (src === dest) {
       log(`Scene retained: ${dest} (already in out dir)`);
     } else {
@@ -8395,112 +8560,12 @@ ${mux.stderr.trim().split("\n").slice(-12).join("\n")}`);
     }
   }
   try {
-    writeFileSync3(join4(outDir, "narrate.log"), `${logLines.join("\n")}
+    writeFileSync4(join5(outDir, "narrate.log"), `${logLines.join("\n")}
 `);
-    opts.onLog?.(`Diagnostic log: ${join4(outDir, "narrate.log")}`);
+    opts.onLog?.(`Diagnostic log: ${join5(outDir, "narrate.log")}`);
   } catch {
   }
   return finalOut;
-}
-
-// src/project.ts
-import { existsSync as existsSync4, mkdirSync as mkdirSync2, readFileSync as readFileSync3, writeFileSync as writeFileSync4 } from "fs";
-import { join as join5 } from "path";
-var SCHEMA_URL = "https://raw.githubusercontent.com/tomek-i/narrate-plugin/main/narrate.schema.json";
-function settingsTemplate() {
-  return {
-    $schema: SCHEMA_URL,
-    ...ConfigSchema.parse({})
-  };
-}
-function ensureGitignore(cwd, entry) {
-  const p = join5(cwd, ".gitignore");
-  const existing = existsSync4(p) ? readFileSync3(p, "utf8") : "";
-  if (existing.split(/\r?\n/).some((l) => l.trim() === entry)) return;
-  const prefix = existing && !existing.endsWith("\n") ? "\n" : "";
-  writeFileSync4(p, `${existing}${prefix}${entry}
-`);
-}
-function initProject(cwd, log = console.log) {
-  const dir = join5(cwd, ".narrate");
-  mkdirSync2(dir, { recursive: true });
-  const path = settingsPath(cwd);
-  let created = false;
-  if (existsSync4(path)) {
-    log(`exists: ${path}`);
-  } else {
-    writeFileSync4(path, `${JSON.stringify(settingsTemplate(), null, 2)}
-`);
-    created = true;
-    log(`created: ${path}`);
-  }
-  ensureGitignore(cwd, ".narrate/");
-  log(`\`.narrate/\` is gitignored. Edit .narrate/${SETTINGS_FILE} (config + keys).`);
-  return { created, path };
-}
-function setKey(cwd, provider, key, log = console.log) {
-  const dir = join5(cwd, ".narrate");
-  mkdirSync2(dir, { recursive: true });
-  const path = settingsPath(cwd);
-  const raw = existsSync4(path) ? JSON.parse(readFileSync3(path, "utf8")) : settingsTemplate();
-  const tts = { ...raw.tts };
-  const block = { ...tts[provider] };
-  block.key = key.trim();
-  tts[provider] = block;
-  tts.provider = provider;
-  raw.tts = tts;
-  writeFileSync4(path, `${JSON.stringify(raw, null, 2)}
-`);
-  ensureGitignore(cwd, ".narrate/");
-  log(`set tts.${provider}.key and tts.provider="${provider}" in ${path}`);
-  return path;
-}
-function setVoice(cwd, voice, log = console.log) {
-  const path = settingsPath(cwd);
-  const raw = existsSync4(path) ? JSON.parse(readFileSync3(path, "utf8")) : settingsTemplate();
-  const tts = { ...raw.tts };
-  const provider = tts.provider ?? "os";
-  if (provider !== "gemini" && provider !== "elevenlabs") {
-    throw new Error(
-      `Active provider is "${provider}", which has no configurable voice id. Switch first with \`narrate set-key <gemini|elevenlabs> <key>\`.`
-    );
-  }
-  const block = { ...tts[provider] };
-  block.voice = voice.trim();
-  tts[provider] = block;
-  raw.tts = tts;
-  writeFileSync4(path, `${JSON.stringify(raw, null, 2)}
-`);
-  log(`set tts.${provider}.voice="${voice.trim()}" in ${path}`);
-  return path;
-}
-function checkEnv(config) {
-  const lines = [];
-  let ok = true;
-  try {
-    ensureFfmpeg();
-    lines.push("ffmpeg:  OK");
-  } catch (err) {
-    ok = false;
-    lines.push(`ffmpeg:  MISSING \u2014 ${err instanceof Error ? err.message : err}`);
-  }
-  const provider = config.tts.provider;
-  const voice = provider === "gemini" ? config.tts.gemini.voice : provider === "elevenlabs" ? config.tts.elevenlabs.voice : "\u2014";
-  lines.push(
-    `config:  provider=${provider}, voice=${voice}, format=${config.output.format}, crf=${config.output.crf}`
-  );
-  if (provider === "os" || provider === "mock") {
-    lines.push(`TTS key: not required (provider "${provider}")`);
-  } else if (hasApiKey(config)) {
-    lines.push(`TTS key: OK (tts.${provider}.key set in .narrate/${SETTINGS_FILE})`);
-  } else {
-    ok = false;
-    lines.push(
-      `TTS key: MISSING \u2014 add it under tts.${provider}.key in .narrate/${SETTINGS_FILE} (or run \`narrate set-key ${provider} <key>\`; or use --provider os for the OS voice / mock for silent)`
-    );
-  }
-  lines.push(`RESULT:  ${ok ? "PASS" : "FAIL"}`);
-  return { ok, lines };
 }
 
 // src/tts/voices.ts
@@ -8566,6 +8631,19 @@ program2.command("set-key").description("Save an API key into .narrate/settings.
     throw new Error(`Unknown provider "${provider}" (expected gemini or elevenlabs).`);
   }
   setKey(process.cwd(), provider, key, (m) => console.log(m));
+});
+program2.command("auth").description(
+  "Open a browser to log in once; saves the session so authenticated scenes start signed in."
+).argument("<url>", "the login URL to open").option("-o, --out <file>", "where to save the session", ".narrate/auth.json").action(async (url, o) => {
+  const out = await captureAuth({
+    url,
+    out: o.out,
+    cwd: process.cwd(),
+    onLog: (m) => console.log(m)
+  });
+  console.log(`
+\u2705 Saved session \u2192 ${out}`);
+  console.log(`Use it in a scene:  "auth": { "storageState": "${o.out}" }`);
 });
 program2.command("voices").description("List TTS voices your configured key can use (helps pick a free-tier voice).").option("-c, --config <file>", "config file (default: .narrate/settings.local.json)").action(async (o) => {
   const { provider, voices, note } = await listVoices(loadConfig(process.cwd(), o.config));

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { Command } from "commander";
+import { captureAuth } from "./auth.js";
 import { loadConfig, loadScene } from "./config.js";
 import { render } from "./pipeline.js";
 import { checkEnv, initProject, setKey, setVoice } from "./project.js";
@@ -57,6 +58,24 @@ program
       throw new Error(`Unknown provider "${provider}" (expected gemini or elevenlabs).`);
     }
     setKey(process.cwd(), provider, key, (m) => console.log(m));
+  });
+
+program
+  .command("auth")
+  .description(
+    "Open a browser to log in once; saves the session so authenticated scenes start signed in.",
+  )
+  .argument("<url>", "the login URL to open")
+  .option("-o, --out <file>", "where to save the session", ".narrate/auth.json")
+  .action(async (url: string, o: { out: string }) => {
+    const out = await captureAuth({
+      url,
+      out: o.out,
+      cwd: process.cwd(),
+      onLog: (m) => console.log(m),
+    });
+    console.log(`\n✅ Saved session → ${out}`);
+    console.log(`Use it in a scene:  "auth": { "storageState": "${o.out}" }`);
   });
 
 program

@@ -68,17 +68,20 @@ into the chat, and never write real credentials into the scene file** — both e
 secrets (to the LLM and on disk, including any `keepScene`/`docs` copy). Use one of
 the two safe paths instead:
 
-1. **`auth.storageState` (preferred).** Have the user log in once themselves and
-   save the session, then point the scene at it — the recorder starts already
-   authenticated and never visits the login screen. Tell them to run (it's
-   interactive, so suggest the `!` prefix so it runs in this session):
+1. **`auth.storageState` (preferred).** Capture the user's session once, then point
+   the scene at it — the recorder starts already authenticated and never visits the
+   login screen. You can run this on demand: it opens a real browser, **blocks while
+   the user logs in, and returns the instant they close the window**, so just invoke
+   it and continue once it exits:
    ```bash
-   npx playwright open --save-storage=.narrate/auth.json <login-url>
+   node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" auth <login-url>   # saves .narrate/auth.json
    ```
-   Then add `"auth": { "storageState": ".narrate/auth.json" }` to the scene and
-   author beats that start *inside* the authenticated UI. `.narrate/` is already
-   gitignored, so the session file (which holds tokens) stays out of git. If a
-   render shows the login screen, the session expired — ask them to re-capture.
+   Tell the user plainly: "a browser will open — log in, then close the window."
+   (Default output is `.narrate/auth.json`; pass `--out .narrate/<name>.json` for a
+   different path.) Then add `"auth": { "storageState": ".narrate/auth.json" }` to the
+   scene and author beats that start *inside* the authenticated UI. The session file
+   is gitignored automatically. If a later render shows the login screen, the session
+   expired — just run `auth` again.
 2. **`${ENV_VAR}` in `fill`/`type` (only if the login itself is the thing to demo).**
    Put placeholders like `${DEMO_PASSWORD}` in the typed text; they resolve from the
    user's environment at render time, so the secret never enters the scene or the
@@ -100,8 +103,10 @@ node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" <command> …
 
 Commands: `init` (scaffold `.narrate/settings.local.json` — config + keys),
 `check` (validate ffmpeg + config; exit 0/1), `render --scene <file> [--out <dir>]
-[--provider <p>] [--voice <v>]`, and `setup` (force-install Playwright + Chromium;
-normally automatic). TTS provider/key onboarding lives in the **`/narrate-setup`** skill.
+[--provider <p>] [--voice <v>]`, `auth <login-url> [--out <file>]` (log in once and
+save a session for authenticated scenes — see below), and `setup` (force-install
+Playwright + Chromium; normally automatic). TTS provider/key onboarding lives in the
+**`/narrate-setup`** skill.
 
 ## Prerequisites
 
