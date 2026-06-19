@@ -32,7 +32,11 @@ program
     }
     if (o.out) config.output.dir = o.out;
     const scene = loadScene(cwd, o.scene);
-    const out = await render(scene, config, { cwd, onLog: (m) => console.log(m) });
+    const out = await render(scene, config, {
+      cwd,
+      scenePath: o.scene,
+      onLog: (m) => console.log(m),
+    });
     console.log(`\n✅ Done → ${out}`);
   });
 

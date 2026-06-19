@@ -37,6 +37,18 @@
             "system"
           ]
         },
+        "auth": {
+          "type": "object",
+          "properties": {
+            "storageState": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "storageState"
+          ],
+          "additionalProperties": false
+        },
         "beats": {
           "type": "array",
           "items": {

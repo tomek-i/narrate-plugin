@@ -44,6 +44,60 @@ visual actions (`do`) shown while it plays.
 as a `file://` page, so a self-contained demo needs no server. See the bundled
 example at `packages/plugin/examples/demo.scene.json`.
 
+## Authentication (gated dashboards)
+
+A fresh recording starts in a clean, signed-out browser context, so a page behind
+a login wall would just show the login screen. Two ways to record it — **without**
+putting real credentials in the scene or the chat:
+
+### 1. `auth.storageState` (recommended)
+
+Log in **once yourself** and save the browser's session (cookies + localStorage)
+to a JSON file, then point the scene at it. The recorder loads that state and
+starts already authenticated — the login screen is never visited or recorded, and
+no credential is involved at render time.
+
+```bash
+# Capture it once: a browser opens, you log in, then close the window.
+npx playwright open --save-storage=.narrate/auth.json https://app.example.com/login
+```
+
+```jsonc
+{
+  "name": "dashboard",
+  "site": "https://app.example.com/dashboard",
+  "auth": { "storageState": ".narrate/auth.json" },   // resolved relative to the cwd
+  "beats": [ /* … straight into the authenticated UI … */ ]
+}
+```
+
+Keep the state file **gitignored** — it holds live session tokens. Putting it under
+`.narrate/` (already gitignored) does that for you. Sessions expire; if a render
+suddenly shows a login screen, re-capture the file. The path is just a path (safe
+to keep in the scene even with `output.keepScene`); the secrets live only in that
+gitignored file.
+
+### 2. `${ENV_VAR}` in `fill` / `type` (when you must demo the login itself)
+
+If the walkthrough should actually *show* logging in, keep the secret out of the
+file by referencing an environment variable in the typed text. It's resolved from
+your shell at render time — the scene only ever contains the placeholder:
+
+```jsonc
+{ "action": "type", "selector": "#email", "text": "${DEMO_EMAIL}" },
+{ "action": "fill", "selector": "#password", "text": "${DEMO_PASSWORD}" }
+```
+
+```bash
+DEMO_EMAIL=demo@acme.com DEMO_PASSWORD=… narrate render --scene …
+```
+
+A referenced variable that isn't set is a hard error (it won't type a literal
+`${…}`). Use `$${…}` if you ever need a literal `${…}` in typed text. Interpolation
+applies to `fill` and `type` text only. Prefer a throwaway/test account here, and
+note the password field is masked in the recording but the value still passes
+through the page — `storageState` avoids that entirely.
+
 ## Pacing
 
 Each beat is held on screen for **exactly its narration length**. Keep a beat's

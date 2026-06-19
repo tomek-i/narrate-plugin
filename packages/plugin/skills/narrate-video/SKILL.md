@@ -38,6 +38,56 @@ it's describing** (cursor for interactions, a brief `focus`/`highlight` pulse fo
 the element/section the narration calls out). This is what makes the highlighting
 feel deliberate rather than random — it's driven by what you actually decided to show.
 
+## Evaluative walkthroughs → also emit a task list
+
+Sometimes the ask isn't "show this off" but "critique this" / "review my home
+page" / "suggest improvements". Then the narration is full of **actionable
+findings** — but spoken in a video, they're easy to lose. Whenever the walkthrough
+is evaluative (you're pointing out problems, gaps, or things to improve), also
+write a **task list in Markdown** next to the video so the suggestions are
+reviewable and a coding agent (or the user) can act on them:
+
+- Path: `./.narrate/tmp/<slug>.tasks.md` (delivered to `./docs/<slug>.tasks.md`).
+- One GitHub-style checkbox (`- [ ]`) per concrete, actionable change — not a
+  restatement of the narration. Each item: a short imperative title, *why* it
+  matters, and where it applies (the page/section, and the **real selector or
+  source file** when you know it, so an agent can jump straight to it).
+- Group by area (e.g. Hero, Navigation, Performance, Accessibility) and, where it
+  helps, note rough priority (high/medium/low).
+- Keep it in sync with the beats: every critical thing the narration calls out
+  should have a corresponding task, so nothing stays buried in the audio.
+
+This is your own authoring step (the engine doesn't generate it) — produce it from
+the same analysis that drove the beats. For a pure showcase (no critique), skip it.
+
+## Authenticated walkthroughs (login-gated pages)
+
+Recording starts in a **clean, signed-out** browser context, so anything behind a
+login wall needs auth set up first. **Never ask the user to paste real credentials
+into the chat, and never write real credentials into the scene file** — both expose
+secrets (to the LLM and on disk, including any `keepScene`/`docs` copy). Use one of
+the two safe paths instead:
+
+1. **`auth.storageState` (preferred).** Have the user log in once themselves and
+   save the session, then point the scene at it — the recorder starts already
+   authenticated and never visits the login screen. Tell them to run (it's
+   interactive, so suggest the `!` prefix so it runs in this session):
+   ```bash
+   npx playwright open --save-storage=.narrate/auth.json <login-url>
+   ```
+   Then add `"auth": { "storageState": ".narrate/auth.json" }` to the scene and
+   author beats that start *inside* the authenticated UI. `.narrate/` is already
+   gitignored, so the session file (which holds tokens) stays out of git. If a
+   render shows the login screen, the session expired — ask them to re-capture.
+2. **`${ENV_VAR}` in `fill`/`type` (only if the login itself is the thing to demo).**
+   Put placeholders like `${DEMO_PASSWORD}` in the typed text; they resolve from the
+   user's environment at render time, so the secret never enters the scene or the
+   chat. Ask the user to export the vars and run `render` themselves (e.g.
+   `DEMO_PASSWORD=… node …/narrate.mjs render …`). Prefer a throwaway/test account.
+
+Default to **#1**; it's the only one that keeps the credential out of the recorded
+page entirely. Confirm which the user prefers rather than assuming.
+
 ## The CLI
 
 The engine is bundled inside this plugin. Always invoke it as:
@@ -110,13 +160,19 @@ normally automatic). TTS provider/key onboarding lives in the **`/narrate-setup`
      --scene ./.narrate/tmp/<slug>.scene.json --out ./.narrate/tmp
    ```
 6. **Deliver**: copy `./.narrate/tmp/<slug>.mp4` → `./docs/<slug>.mp4`, ensure
-   `.narrate/` is in the project `.gitignore`, and stop the dev server.
-7. **Report audio, then clean up.** Read `./.narrate/tmp/narrate.log` and quote its
-   **"Final audio"** line (stream present? mean volume in dB) so the user can verify
-   the muxed audio is real. If it reports the stream MISSING or silent, surface that
-   and keep `./.narrate/tmp` for debugging; otherwise **delete `./.narrate/tmp`**
-   automatically — the deliverable lives at `./docs/<slug>.mp4`. Report that path.
-   (Note: VS Code's built-in preview can't decode the audio — verify in VLC or a browser.)
+   `.narrate/` is in the project `.gitignore`, and stop the dev server. Deliver any
+   sidecars produced alongside the video too: `<slug>.vtt` (captions, if
+   `output.vtt` is on), `<slug>.scene.json` (if `output.keepScene` is on), and the
+   `<slug>.tasks.md` task list you authored for an evaluative walkthrough — copy
+   each to `./docs/` next to the mp4.
+7. **Report audio + artifacts, then clean up.** Read `./.narrate/tmp/narrate.log`
+   and quote its **"Final audio"** line (stream present? mean volume in dB) so the
+   user can verify the muxed audio is real. List every delivered file (video, and
+   any captions / scene / task list). If the log reports the stream MISSING or
+   silent, surface that and keep `./.narrate/tmp` for debugging; otherwise **delete
+   `./.narrate/tmp`** automatically — the deliverables live under `./docs/`. Report
+   those paths. (Note: VS Code's built-in preview can't decode the audio — verify in
+   VLC or a browser.)
 
 ## Scene format
 
@@ -126,6 +182,7 @@ normally automatic). TTS provider/key onboarding lives in the **`/narrate-setup`
   "site": "http://localhost:3000",
   "viewport": { "width": 1440, "height": 900 },
   "theme": "dark",                         // optional: light | dark | system
+  "auth": { "storageState": ".narrate/auth.json" },  // optional: start signed in (see Authenticated walkthroughs)
   "beats": [
     {
       "id": "intro",
@@ -207,6 +264,9 @@ Two roles — keep them separate so it doesn't look random:
   `tts.elevenlabs` — each with its own `voice`/`model`/`key`); default is the OS
   voice (no key). Override per-run with `--provider` / `--voice`. To switch to a
   cloud voice, run **`/narrate-setup`** (or `narrate set-key <provider> <key>`).
+  Two optional `output` flags add sidecar files next to the video: `"vtt": true`
+  writes a `<name>.vtt` caption track (one cue per beat, timed to the narration),
+  and `"keepScene": true` keeps a `<name>.scene.json` copy for later re-renders.
 - **Theme:** the optional scene-level `theme` emulates the browser's
   `prefers-color-scheme` (the standard OS/browser color-scheme signal), so it
   works for any site that honors that media query. Apps with a *manual* toggle

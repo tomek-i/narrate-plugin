@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import type { Browser, BrowserType, Page } from "playwright";
+import { interpolateEnv } from "../env.js";
 import { installChromium } from "../setup.js";
 import type { Config, Durations, OverlayConfig, Scene, Step } from "../types.js";
 import { OVERLAY_SCRIPT } from "./overlay.js";
@@ -86,6 +87,10 @@ export class PlaywrightRecorder implements Recorder {
       // Emulate the OS/browser color scheme (the standard `prefers-color-scheme`).
       // Sites with a manual toggle should drive it with a click/menu step instead.
       ...(scene.theme ? { colorScheme: COLOR_SCHEME[scene.theme] } : {}),
+      // Start already authenticated from a saved storage state (cookies +
+      // localStorage), so the login screen is skipped and no credential is needed.
+      // The path is resolved/validated by the pipeline before we get here.
+      ...(scene.auth?.storageState ? { storageState: scene.auth.storageState } : {}),
     });
     // Inject the synthetic-cursor + highlight overlay (if either is enabled) so
     // it's present on every page/navigation. It's inert until the steps call it.
@@ -254,11 +259,14 @@ async function runStep(page: Page, step: Step, fx: OverlayConfig): Promise<void>
     // --- keyboard / forms ---
     case "fill":
       if (fx.cursor) await pointTo(page, step.selector);
-      await page.fill(step.selector, step.text);
+      // Resolve any `${ENV_VAR}` so secrets stay out of the scene file / the LLM.
+      await page.fill(step.selector, interpolateEnv(step.text));
       return;
     case "type":
       if (fx.cursor) await pointTo(page, step.selector);
-      await page.locator(step.selector).pressSequentially(step.text, { delay: step.delay });
+      await page
+        .locator(step.selector)
+        .pressSequentially(interpolateEnv(step.text), { delay: step.delay });
       return;
     case "clear":
       await page.fill(step.selector, "");

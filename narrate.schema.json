@@ -95,6 +95,14 @@
             "crf": {
               "type": "number",
               "default": 16
+            },
+            "vtt": {
+              "type": "boolean",
+              "default": false
+            },
+            "keepScene": {
+              "type": "boolean",
+              "default": false
             }
           },
           "additionalProperties": false,
@@ -104,7 +112,9 @@
             "height": 900,
             "fps": 25,
             "format": "mp4",
-            "crf": 16
+            "crf": 16,
+            "vtt": false,
+            "keepScene": false
           }
         },
         "overlay": {

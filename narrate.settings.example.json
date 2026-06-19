@@ -19,7 +19,9 @@
     "height": 900,
     "fps": 25,
     "format": "mp4",
-    "crf": 16
+    "crf": 16,
+    "vtt": false,
+    "keepScene": false
   },
   "overlay": {
     "cursor": true,

@@ -7200,11 +7200,17 @@ var BeatSchema = external_exports.object({
   focusLabel: external_exports.string().optional(),
   do: external_exports.array(StepSchema).default([])
 });
+var AuthSchema = external_exports.object({
+  /** Path to a Playwright storageState JSON, resolved relative to the cwd. */
+  storageState: external_exports.string()
+});
 var SceneSchema = external_exports.object({
   name: external_exports.string().default("scene"),
   site: external_exports.string(),
   viewport: external_exports.object({ width: external_exports.number().default(1440), height: external_exports.number().default(900) }).default({ width: 1440, height: 900 }),
   theme: external_exports.enum(["light", "dark", "system"]).optional(),
+  /** Start already authenticated by loading a saved Playwright storage state. */
+  auth: AuthSchema.optional(),
   beats: external_exports.array(BeatSchema).min(1)
 });
 var ConfigSchema = external_exports.object({
@@ -7243,8 +7249,28 @@ var ConfigSchema = external_exports.object({
     fps: external_exports.number().default(25),
     format: external_exports.enum(["mp4", "webm"]).default("mp4"),
     /** Encode quality (x264/vp9 CRF). Lower = higher quality/less banding. */
-    crf: external_exports.number().default(16)
-  }).default({ dir: "out", width: 1440, height: 900, fps: 25, format: "mp4", crf: 16 }),
+    crf: external_exports.number().default(16),
+    /**
+     * Also write a WebVTT caption track (`<name>.vtt`) next to the video, one
+     * cue per beat timed to the narration. Useful as subtitles or a readable
+     * transcript of what was said. Off by default.
+     */
+    vtt: external_exports.boolean().default(false),
+    /**
+     * Keep a copy of the scene file (`<name>.scene.json`) next to the video so
+     * the walkthrough can be re-rendered or edited later. Off by default.
+     */
+    keepScene: external_exports.boolean().default(false)
+  }).default({
+    dir: "out",
+    width: 1440,
+    height: 900,
+    fps: 25,
+    format: "mp4",
+    crf: 16,
+    vtt: false,
+    keepScene: false
+  }),
   /**
    * On-screen overlays injected into the recorded page (never the real cursor).
    * All on by default for a richer demo; flip any flag off to disable it.
@@ -7334,7 +7360,7 @@ function resolveApiKey(config) {
 }
 
 // src/pipeline.ts
-import { mkdirSync, writeFileSync as writeFileSync3 } from "fs";
+import { copyFileSync, existsSync as existsSync3, mkdirSync, writeFileSync as writeFileSync3 } from "fs";
 import { join as join4, resolve as resolve2 } from "path";
 import { pathToFileURL as pathToFileURL2 } from "url";
 
@@ -7471,6 +7497,22 @@ function hasAudioStream(file) {
 
 // src/record/playwright.ts
 import { join as join2 } from "path";
+
+// src/env.ts
+function interpolateEnv(text, env = process.env) {
+  const ESC = "\0NARRATE_ESC\0";
+  const protectedText = text.replace(/\$\$\{/g, ESC);
+  const resolved = protectedText.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (_m, name) => {
+    const value = env[name];
+    if (value === void 0) {
+      throw new Error(
+        `Scene references environment variable "${name}" (as \${${name}}), but it is not set. Export it before rendering, e.g. ${name}=\u2026 narrate render \u2026`
+      );
+    }
+    return value;
+  });
+  return resolved.replaceAll(ESC, "${");
+}
 
 // src/setup.ts
 import { execFileSync as execFileSync2 } from "child_process";
@@ -7737,7 +7779,11 @@ var PlaywrightRecorder = class {
       deviceScaleFactor: 1,
       // Emulate the OS/browser color scheme (the standard `prefers-color-scheme`).
       // Sites with a manual toggle should drive it with a click/menu step instead.
-      ...scene.theme ? { colorScheme: COLOR_SCHEME[scene.theme] } : {}
+      ...scene.theme ? { colorScheme: COLOR_SCHEME[scene.theme] } : {},
+      // Start already authenticated from a saved storage state (cookies +
+      // localStorage), so the login screen is skipped and no credential is needed.
+      // The path is resolved/validated by the pipeline before we get here.
+      ...scene.auth?.storageState ? { storageState: scene.auth.storageState } : {}
     });
     const fx = this.config.overlay;
     if (fx.cursor || fx.highlight) {
@@ -7869,11 +7915,11 @@ async function runStep(page, step, fx) {
     // --- keyboard / forms ---
     case "fill":
       if (fx.cursor) await pointTo(page, step.selector);
-      await page.fill(step.selector, step.text);
+      await page.fill(step.selector, interpolateEnv(step.text));
       return;
     case "type":
       if (fx.cursor) await pointTo(page, step.selector);
-      await page.locator(step.selector).pressSequentially(step.text, { delay: step.delay });
+      await page.locator(step.selector).pressSequentially(interpolateEnv(step.text), { delay: step.delay });
       return;
     case "clear":
       await page.fill(step.selector, "");
@@ -8226,6 +8272,28 @@ function makeProvider(config) {
   }
 }
 
+// src/vtt.ts
+function timestamp(seconds) {
+  const ms = Math.max(0, Math.round(seconds * 1e3));
+  const pad = (n, width = 2) => String(n).padStart(width, "0");
+  const h = Math.floor(ms / 36e5);
+  const m = Math.floor(ms % 36e5 / 6e4);
+  const s = Math.floor(ms % 6e4 / 1e3);
+  return `${pad(h)}:${pad(m)}:${pad(s)}.${pad(ms % 1e3, 3)}`;
+}
+function buildVtt(beats, durations, leadInSec = 0) {
+  const lines = ["WEBVTT", ""];
+  let t = leadInSec;
+  for (const beat of beats) {
+    const start = t;
+    const end = t + (durations[beat.id] ?? 0);
+    t = end;
+    lines.push(beat.id, `${timestamp(start)} --> ${timestamp(end)}`, beat.say.trim(), "");
+  }
+  return `${lines.join("\n")}
+`;
+}
+
 // src/pipeline.ts
 function resolveSite(site, cwd) {
   if (/^(https?|file):\/\//i.test(site)) return site;
@@ -8264,7 +8332,18 @@ async function render(scene, config, opts) {
   }
   log("Recording walkthrough (headless)\u2026");
   const recorder = new PlaywrightRecorder(outDir, config);
-  const sceneToRecord = { ...scene, site: resolveSite(scene.site, opts.cwd) };
+  let auth = scene.auth;
+  if (auth?.storageState) {
+    const statePath = resolve2(opts.cwd, auth.storageState);
+    if (!existsSync3(statePath)) {
+      throw new Error(
+        `Auth storage state not found: ${statePath}. Capture it once by logging in yourself, e.g. \`npx playwright open --save-storage=${auth.storageState} ${scene.site}\`, then re-run. (Keep that file gitignored \u2014 it holds session tokens.)`
+      );
+    }
+    auth = { storageState: statePath };
+    log(`Auth: loading storage state from ${statePath} (starting signed in)`);
+  }
+  const sceneToRecord = { ...scene, site: resolveSite(scene.site, opts.cwd), auth };
   const { videoPath, leadInMs } = await recorder.record(sceneToRecord, durations);
   if (!videoPath) throw new Error("Recording produced no video file.");
   log(`Recorded video: ${videoPath} (lead-in ${(leadInMs / 1e3).toFixed(3)}s)`);
@@ -8296,6 +8375,25 @@ ${mux.stderr.trim().split("\n").slice(-12).join("\n")}`);
       audioOk ? "\u26A0\uFE0F  Warning: the final video's audio track is silent (near -inf dB) even though narration.wav had sound \u2014 the mux lost the audio content." : "\u26A0\uFE0F  Warning: the final video has NO audio stream \u2014 the mux dropped the narration entirely."
     );
   }
+  if (config.output.vtt) {
+    const vttPath = join4(outDir, `${scene.name}.vtt`);
+    writeFileSync3(vttPath, buildVtt(scene.beats, durations, leadInMs / 1e3));
+    log(`Captions: ${vttPath}`);
+  }
+  if (config.output.keepScene && opts.scenePath) {
+    const src = resolve2(opts.cwd, opts.scenePath);
+    const dest = join4(outDir, `${scene.name}.scene.json`);
+    if (src === dest) {
+      log(`Scene retained: ${dest} (already in out dir)`);
+    } else {
+      try {
+        copyFileSync(src, dest);
+        log(`Scene retained: ${dest}`);
+      } catch (err) {
+        log(`\u26A0\uFE0F  Could not retain scene file: ${err instanceof Error ? err.message : err}`);
+      }
+    }
+  }
   try {
     writeFileSync3(join4(outDir, "narrate.log"), `${logLines.join("\n")}
 `);
@@ -8306,7 +8404,7 @@ ${mux.stderr.trim().split("\n").slice(-12).join("\n")}`);
 }
 
 // src/project.ts
-import { existsSync as existsSync3, mkdirSync as mkdirSync2, readFileSync as readFileSync3, writeFileSync as writeFileSync4 } from "fs";
+import { existsSync as existsSync4, mkdirSync as mkdirSync2, readFileSync as readFileSync3, writeFileSync as writeFileSync4 } from "fs";
 import { join as join5 } from "path";
 var SCHEMA_URL = "https://raw.githubusercontent.com/tomek-i/narrate-plugin/main/narrate.schema.json";
 function settingsTemplate() {
@@ -8317,7 +8415,7 @@ function settingsTemplate() {
 }
 function ensureGitignore(cwd, entry) {
   const p = join5(cwd, ".gitignore");
-  const existing = existsSync3(p) ? readFileSync3(p, "utf8") : "";
+  const existing = existsSync4(p) ? readFileSync3(p, "utf8") : "";
   if (existing.split(/\r?\n/).some((l) => l.trim() === entry)) return;
   const prefix = existing && !existing.endsWith("\n") ? "\n" : "";
   writeFileSync4(p, `${existing}${prefix}${entry}
@@ -8328,7 +8426,7 @@ function initProject(cwd, log = console.log) {
   mkdirSync2(dir, { recursive: true });
   const path = settingsPath(cwd);
   let created = false;
-  if (existsSync3(path)) {
+  if (existsSync4(path)) {
     log(`exists: ${path}`);
   } else {
     writeFileSync4(path, `${JSON.stringify(settingsTemplate(), null, 2)}
@@ -8344,7 +8442,7 @@ function setKey(cwd, provider, key, log = console.log) {
   const dir = join5(cwd, ".narrate");
   mkdirSync2(dir, { recursive: true });
   const path = settingsPath(cwd);
-  const raw = existsSync3(path) ? JSON.parse(readFileSync3(path, "utf8")) : settingsTemplate();
+  const raw = existsSync4(path) ? JSON.parse(readFileSync3(path, "utf8")) : settingsTemplate();
   const tts = { ...raw.tts };
   const block = { ...tts[provider] };
   block.key = key.trim();
@@ -8359,7 +8457,7 @@ function setKey(cwd, provider, key, log = console.log) {
 }
 function setVoice(cwd, voice, log = console.log) {
   const path = settingsPath(cwd);
-  const raw = existsSync3(path) ? JSON.parse(readFileSync3(path, "utf8")) : settingsTemplate();
+  const raw = existsSync4(path) ? JSON.parse(readFileSync3(path, "utf8")) : settingsTemplate();
   const tts = { ...raw.tts };
   const provider = tts.provider ?? "os";
   if (provider !== "gemini" && provider !== "elevenlabs") {
@@ -8452,7 +8550,11 @@ program2.command("render").description("TTS \u2192 record \u2192 mux into one na
   }
   if (o.out) config.output.dir = o.out;
   const scene = loadScene(cwd, o.scene);
-  const out = await render(scene, config, { cwd, onLog: (m) => console.log(m) });
+  const out = await render(scene, config, {
+    cwd,
+    scenePath: o.scene,
+    onLog: (m) => console.log(m)
+  });
   console.log(`
 \u2705 Done \u2192 ${out}`);
 });

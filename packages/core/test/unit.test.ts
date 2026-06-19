@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { parseRate, pcmToWav } from "../src/audio/wav.js";
 import { hasApiKey, resolveApiKey } from "../src/config.js";
+import { interpolateEnv } from "../src/env.js";
 import { MockProvider } from "../src/tts/mock.js";
 import { OsTtsProvider } from "../src/tts/os.js";
 import { ConfigSchema, SceneSchema } from "../src/types.js";
+import { buildVtt } from "../src/vtt.js";
 
 test("pcmToWav writes a valid 44-byte WAV header", () => {
   const pcm = Buffer.alloc(100);
@@ -78,6 +80,29 @@ test("ConfigSchema defaults to the keyless OS voice with nested provider blocks"
   assert.equal(cfg.tts.gemini.voice, "Kore");
   assert.equal(cfg.tts.elevenlabs.model, "eleven_multilingual_v2");
   assert.equal(cfg.output.format, "mp4");
+});
+
+test("interpolateEnv substitutes set vars, escapes $${}, and throws on missing", () => {
+  const env = { USER_NAME: "ada", PASS: "s3cret" };
+  assert.equal(interpolateEnv("${USER_NAME} / ${PASS}", env), "ada / s3cret");
+  // `$${...}` is an escape for a literal `${...}` (no lookup).
+  assert.equal(interpolateEnv("price is $${TOTAL}", env), "price is ${TOTAL}");
+  // A referenced-but-unset var fails loudly rather than typing a literal placeholder.
+  assert.throws(() => interpolateEnv("${MISSING}", env), /not set/);
+  // Plain text is untouched.
+  assert.equal(interpolateEnv("just text", env), "just text");
+});
+
+test("buildVtt emits lead-in-offset, back-to-back cues per beat", () => {
+  const beats = [
+    { id: "intro", say: " Hello there. ", do: [] },
+    { id: "next", say: "Now the dashboard.", do: [] },
+  ];
+  const vtt = buildVtt(beats, { intro: 2, next: 3 }, 1);
+  assert.ok(vtt.startsWith("WEBVTT\n"));
+  // Cues are offset by the 1s lead-in and run consecutively (1→3, 3→6).
+  assert.match(vtt, /intro\n00:00:01\.000 --> 00:00:03\.000\nHello there\./);
+  assert.match(vtt, /next\n00:00:03\.000 --> 00:00:06\.000\nNow the dashboard\./);
 });
 
 test("os/mock providers need no key; resolveApiKey returns empty", () => {

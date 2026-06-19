@@ -31,7 +31,9 @@ a cloud voice with `narrate set-key` (or the `/narrate-setup` skill).
     "height": 900,
     "fps": 25,
     "format": "mp4",                           // mp4 | webm
-    "crf": 16                                  // encode quality; lower = sharper / less banding (try 14 for stubborn dark-UI flicker)
+    "crf": 16,                                 // encode quality; lower = sharper / less banding (try 14 for stubborn dark-UI flicker)
+    "vtt": false,                              // also write <name>.vtt captions (one cue per beat, timed to narration)
+    "keepScene": false                         // also keep a copy of the scene file (<name>.scene.json) next to the video
   },
   "overlay": {
     "cursor": true,                            // glide a synthetic cursor onto elements before click/hover/type
@@ -69,6 +71,18 @@ mp4 output uses H.264 video + **MP3** audio (MP3 so VS Code's preview, which can
 decode AAC, still plays sound), with `+faststart` and screen-content tuning
 (deband, dark-biased AQ, flat I/P/B quality, no scene-cut keyframes) to avoid
 flicker/banding on flat dark UIs. If flicker persists, lower `crf` (e.g. 14).
+
+### Sidecar outputs (`output.vtt`, `output.keepScene`)
+
+Both off by default; flip them on in `output` to get extra files next to the video:
+
+- **`vtt`** — writes `<name>.vtt`, a WebVTT caption track with one cue per beat,
+  timed to the measured narration (offset by the recorder's lead-in so it lines up
+  with the muxed audio). Use it as subtitles, or as a readable transcript of what
+  was said.
+- **`keepScene`** — keeps a copy of the scene file as `<name>.scene.json` next to
+  the video, so the walkthrough can be re-rendered or hand-edited later. (If the
+  scene already lives in the output dir, it's retained in place.)
 
 Override per run with `--provider`, `--voice`, and `--out`.
 

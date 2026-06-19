@@ -111,6 +111,21 @@ export const BeatSchema = z.object({
 });
 export type Beat = z.infer<typeof BeatSchema>;
 
+/**
+ * Authenticated walkthroughs. Point `storageState` at a Playwright storage-state
+ * JSON (cookies + localStorage) captured once by logging in yourself — the
+ * recorder loads it so it starts already signed in and never sees the login
+ * screen or any credential. The file holds session tokens, so keep it gitignored
+ * (e.g. under `.narrate/`). This is the safe alternative to typing real
+ * credentials into a scene; see the `${ENV_VAR}` support on `fill`/`type` for the
+ * cases where you do want to drive a login form without putting secrets in the file.
+ */
+export const AuthSchema = z.object({
+  /** Path to a Playwright storageState JSON, resolved relative to the cwd. */
+  storageState: z.string(),
+});
+export type Auth = z.infer<typeof AuthSchema>;
+
 /** A full walkthrough: where to go, how big, and the ordered beats. */
 export const SceneSchema = z.object({
   name: z.string().default("scene"),
@@ -119,6 +134,8 @@ export const SceneSchema = z.object({
     .object({ width: z.number().default(1440), height: z.number().default(900) })
     .default({ width: 1440, height: 900 }),
   theme: z.enum(["light", "dark", "system"]).optional(),
+  /** Start already authenticated by loading a saved Playwright storage state. */
+  auth: AuthSchema.optional(),
   beats: z.array(BeatSchema).min(1),
 });
 export type Scene = z.infer<typeof SceneSchema>;
@@ -167,8 +184,28 @@ export const ConfigSchema = z.object({
       format: z.enum(["mp4", "webm"]).default("mp4"),
       /** Encode quality (x264/vp9 CRF). Lower = higher quality/less banding. */
       crf: z.number().default(16),
+      /**
+       * Also write a WebVTT caption track (`<name>.vtt`) next to the video, one
+       * cue per beat timed to the narration. Useful as subtitles or a readable
+       * transcript of what was said. Off by default.
+       */
+      vtt: z.boolean().default(false),
+      /**
+       * Keep a copy of the scene file (`<name>.scene.json`) next to the video so
+       * the walkthrough can be re-rendered or edited later. Off by default.
+       */
+      keepScene: z.boolean().default(false),
     })
-    .default({ dir: "out", width: 1440, height: 900, fps: 25, format: "mp4", crf: 16 }),
+    .default({
+      dir: "out",
+      width: 1440,
+      height: 900,
+      fps: 25,
+      format: "mp4",
+      crf: 16,
+      vtt: false,
+      keepScene: false,
+    }),
   /**
    * On-screen overlays injected into the recorded page (never the real cursor).
    * All on by default for a richer demo; flip any flag off to disable it.

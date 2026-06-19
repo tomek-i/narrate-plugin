@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
@@ -14,10 +14,13 @@ import { PlaywrightRecorder } from "./record/playwright.js";
 import { hasPlaywright, installChromium, installPlaywrightPackage } from "./setup.js";
 import { makeProvider } from "./tts/index.js";
 import type { Config, Durations, Scene } from "./types.js";
+import { buildVtt } from "./vtt.js";
 
 export interface RenderOptions {
   cwd: string;
   onLog?: (msg: string) => void;
+  /** Path the scene was loaded from — used by `output.keepScene` to retain a copy. */
+  scenePath?: string;
 }
 
 /** A `site` that isn't a URL is treated as a local file path → `file://` URL. */
@@ -79,7 +82,20 @@ export async function render(scene: Scene, config: Config, opts: RenderOptions):
   // 2. Record the scene continuously, each beat paced to its narration length.
   log("Recording walkthrough (headless)…");
   const recorder = new PlaywrightRecorder(outDir, config);
-  const sceneToRecord = { ...scene, site: resolveSite(scene.site, opts.cwd) };
+  // Resolve an auth storage-state path (if any) up front so the recorder gets an
+  // absolute path and a missing file fails here with a clear, actionable message.
+  let auth = scene.auth;
+  if (auth?.storageState) {
+    const statePath = resolve(opts.cwd, auth.storageState);
+    if (!existsSync(statePath)) {
+      throw new Error(
+        `Auth storage state not found: ${statePath}. Capture it once by logging in yourself, e.g. \`npx playwright open --save-storage=${auth.storageState} ${scene.site}\`, then re-run. (Keep that file gitignored — it holds session tokens.)`,
+      );
+    }
+    auth = { storageState: statePath };
+    log(`Auth: loading storage state from ${statePath} (starting signed in)`);
+  }
+  const sceneToRecord = { ...scene, site: resolveSite(scene.site, opts.cwd), auth };
   const { videoPath, leadInMs } = await recorder.record(sceneToRecord, durations);
   if (!videoPath) throw new Error("Recording produced no video file.");
   log(`Recorded video: ${videoPath} (lead-in ${(leadInMs / 1000).toFixed(3)}s)`);
@@ -114,6 +130,29 @@ export async function render(scene: Scene, config: Config, opts: RenderOptions):
         ? "⚠️  Warning: the final video's audio track is silent (near -inf dB) even though narration.wav had sound — the mux lost the audio content."
         : "⚠️  Warning: the final video has NO audio stream — the mux dropped the narration entirely.",
     );
+  }
+
+  // Optional sidecars next to the video: a caption track and/or the scene file.
+  if (config.output.vtt) {
+    const vttPath = join(outDir, `${scene.name}.vtt`);
+    writeFileSync(vttPath, buildVtt(scene.beats, durations, leadInMs / 1000));
+    log(`Captions: ${vttPath}`);
+  }
+  if (config.output.keepScene && opts.scenePath) {
+    const src = resolve(opts.cwd, opts.scenePath);
+    const dest = join(outDir, `${scene.name}.scene.json`);
+    // The scene may already live in the out dir (src === dest) — then it's
+    // retained simply by not being deleted, so there's nothing to copy.
+    if (src === dest) {
+      log(`Scene retained: ${dest} (already in out dir)`);
+    } else {
+      try {
+        copyFileSync(src, dest);
+        log(`Scene retained: ${dest}`);
+      } catch (err) {
+        log(`⚠️  Could not retain scene file: ${err instanceof Error ? err.message : err}`);
+      }
+    }
   }
 
   // Always write a diagnostic log next to the output for easy copy/paste.
