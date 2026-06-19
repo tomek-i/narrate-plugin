@@ -2,7 +2,7 @@
   "name": "narrate",
   "displayName": "Narrate",
   "description": "Generate a narrated walkthrough video of a website (headless browser recording + text-to-speech).",
-  "version": "0.20.0",
+  "version": "0.21.0",
   "author": {
     "name": "Thomas Iwainski",
     "email": "tomek.iwainski@gmail.com"
