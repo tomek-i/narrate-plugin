@@ -1,0 +1,18 @@
+name: Release Please
+
+# On every push to main, open/refresh a release PR that bumps the version in
+# package.json, packages/*/package.json and the plugin manifest (the field
+# `/plugin` compares to detect updates). Merging that PR tags the release.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@v4

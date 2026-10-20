@@ -7677,7 +7677,7 @@ function interpolateEnv(text, env = process.env) {
 
 // src/setup.ts
 import { execFileSync as execFileSync2 } from "child_process";
-import { existsSync as existsSync3 } from "fs";
+import { existsSync as existsSync3, readFileSync as readFileSync3 } from "fs";
 import { dirname as dirname3, join as join2 } from "path";
 import { fileURLToPath } from "url";
 var isWin = process.platform === "win32";
@@ -7690,6 +7690,10 @@ function packageRoot() {
     dir = parent;
   }
   return dir;
+}
+function packageVersion() {
+  const pkg = JSON.parse(readFileSync3(join2(packageRoot(), "package.json"), "utf8"));
+  return pkg.version;
 }
 function npm(args, cwd, extraEnv = {}) {
   execFileSync2(isWin ? "npm.cmd" : "npm", args, {
@@ -8365,7 +8369,7 @@ var MockProvider = class {
 
 // src/tts/os.ts
 import { execFileSync as execFileSync3 } from "child_process";
-import { mkdtempSync, readFileSync as readFileSync3, rmSync, writeFileSync as writeFileSync3 } from "fs";
+import { mkdtempSync, readFileSync as readFileSync4, rmSync, writeFileSync as writeFileSync3 } from "fs";
 import { tmpdir } from "os";
 import { join as join4 } from "path";
 var OsTtsProvider = class {
@@ -8436,7 +8440,7 @@ function windows(text, voice) {
     }
   }
   if (!ran) throw lastErr ?? new Error("no PowerShell found");
-  const audio = readFileSync3(wav);
+  const audio = readFileSync4(wav);
   s.clean();
   if (audio.length <= 44) throw new Error("PowerShell TTS produced an empty WAV");
   return { audio, ext: "wav" };
@@ -8448,7 +8452,7 @@ function macos(text, voice) {
   const args = ["-f", s.txt, "-o", aiff];
   if (voice) args.unshift("-v", voice);
   run("say", args);
-  const audio = readFileSync3(aiff);
+  const audio = readFileSync4(aiff);
   s.clean();
   return { audio, ext: "aiff" };
 }
@@ -8468,7 +8472,7 @@ function linux(text, voice) {
   const args = ["-w", wav, "-f", s.txt];
   if (voice) args.push("-v", voice);
   run(bin, args);
-  const audio = readFileSync3(wav);
+  const audio = readFileSync4(wav);
   s.clean();
   return { audio, ext: "wav" };
 }
@@ -8665,7 +8669,7 @@ async function listVoices(config) {
 // src/cli.ts
 var CONFIG_HELP = "project config file, layered over ~/.narrate/settings.json (default: .narrate/settings.local.json)";
 var program2 = new Command();
-program2.name("narrate").description("Generate a narrated walkthrough video of a website.").version("0.21.0");
+program2.name("narrate").description("Generate a narrated walkthrough video of a website.").version(packageVersion());
 program2.command("render").description("TTS \u2192 record \u2192 mux into one narrated video.").requiredOption("-s, --scene <file>", "scene JSON file").option("-c, --config <file>", CONFIG_HELP).option("-o, --out <dir>", "output directory (overrides config output.dir)").option("--provider <name>", "override TTS provider (gemini|elevenlabs|os|mock)").option("--voice <name>", "override voice").action(async (o) => {
   const cwd = process.cwd();
   const config = loadConfig(cwd, o.config);
