@@ -1,7 +1,16 @@
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { parseRate, pcmToWav } from "../src/audio/wav.js";
-import { hasApiKey, resolveApiKey } from "../src/config.js";
+import {
+  hasApiKey,
+  loadConfigLayers,
+  mergeSettings,
+  resolveApiKey,
+  settingOrigin,
+} from "../src/config.js";
 import { interpolateEnv } from "../src/env.js";
 import { MockProvider } from "../src/tts/mock.js";
 import { OsTtsProvider } from "../src/tts/os.js";
@@ -119,6 +128,60 @@ test("a nested provider key is used and beats the env fallback", () => {
   });
   assert.equal(hasApiKey(cfg), true);
   assert.equal(resolveApiKey(cfg), "file-key");
+});
+
+test("mergeSettings deep-merges objects and replaces scalars/arrays", () => {
+  const merged = mergeSettings(
+    { tts: { provider: "gemini", gemini: { key: "g", voice: "Kore" } }, list: [1, 2] },
+    { tts: { gemini: { voice: "Puck" } }, list: [3] },
+  );
+  assert.deepEqual(merged, {
+    tts: { provider: "gemini", gemini: { key: "g", voice: "Puck" } },
+    list: [3],
+  });
+});
+
+test("loadConfigLayers layers project settings over global without default clobbering", () => {
+  const root = mkdtempSync(join(tmpdir(), "narrate-cfg-"));
+  try {
+    const globalPath = join(root, "home", "settings.json");
+    mkdirSync(dirname(globalPath), { recursive: true });
+    writeFileSync(
+      globalPath,
+      JSON.stringify({
+        tts: { provider: "elevenlabs", elevenlabs: { key: "global-key", voice: "g-voice" } },
+        output: { crf: 14 },
+      }),
+    );
+    const cwd = join(root, "proj");
+    mkdirSync(join(cwd, ".narrate"), { recursive: true });
+
+    // No project file → global applies as-is.
+    let { config, layers } = loadConfigLayers(cwd, undefined, globalPath);
+    assert.equal(config.tts.provider, "elevenlabs");
+    assert.equal(config.tts.elevenlabs.key, "global-key");
+    assert.deepEqual(
+      layers.map((l) => l.scope),
+      ["global"],
+    );
+
+    // Project overrides only the voice; everything else still comes from global.
+    writeFileSync(
+      join(cwd, ".narrate", "settings.local.json"),
+      JSON.stringify({ $schema: "x", tts: { elevenlabs: { voice: "p-voice" } } }),
+    );
+    ({ config, layers } = loadConfigLayers(cwd, undefined, globalPath));
+    assert.equal(config.tts.provider, "elevenlabs");
+    assert.equal(config.tts.elevenlabs.key, "global-key");
+    assert.equal(config.tts.elevenlabs.voice, "p-voice");
+    assert.equal(config.output.crf, 14);
+    assert.equal(config.output.format, "mp4"); // untouched → schema default
+    assert.equal(settingOrigin(layers, "tts.elevenlabs.voice"), "project");
+    assert.equal(settingOrigin(layers, "tts.provider"), "global");
+    assert.equal(settingOrigin(layers, "output.fps"), "default");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("a missing key reports not-configured and resolveApiKey throws", () => {

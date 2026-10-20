@@ -54,9 +54,13 @@ node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" render --scene scene.json
 pnpm narrate render --scene packages/plugin/examples/demo.scene.json
 ```
 
-`init` writes `.narrate/settings.local.json` (config + keys in one file) and
-gitignores `.narrate/`. `set-key` stores an API key there and switches the active
-provider. `check` is a deterministic preflight you can run anytime.
+Settings are global with per-project overrides (see
+[configuration.md](./configuration.md)). `set-key` stores an API key in your
+global `~/.narrate/settings.json` and switches the active provider (add
+`--project` to override just this project). `init` scaffolds an empty project
+override file `.narrate/settings.local.json` and gitignores `.narrate/`. `check`
+is a deterministic preflight you can run anytime; it shows where each value comes
+from.
 
 Flags (`render`):
 
@@ -64,7 +68,7 @@ Flags (`render`):
 | ------------------- | -------------------------------------------------- |
 | `-s, --scene <f>`   | scene JSON file (required)                          |
 | `-o, --out <dir>`   | output directory (default `out`, or config value)   |
-| `-c, --config <f>`  | config file (default `.narrate/settings.local.json`)|
+| `-c, --config <f>`  | project config file, layered over the global one (default `.narrate/settings.local.json`)|
 | `--provider <p>`    | override TTS provider (`gemini`/`elevenlabs`/`os`/`mock`)|
 | `--voice <v>`       | override voice                                      |
 

@@ -1,12 +1,30 @@
 # Configuration
 
-## `.narrate/settings.local.json`
+## Global settings + per-project overrides
 
-One file holds **both** settings and API keys. It lives in `.narrate/`, which is
-gitignored, so the keys are never committed. All fields are optional — omit the
-file (or any field) to use defaults. Scaffold it with `narrate init`. The default
-provider is the **OS voice** (no key), so narrate works out of the box; upgrade to
-a cloud voice with `narrate set-key` (or the `/narrate-setup` skill).
+Settings (and API keys) are layered, lowest priority first:
+
+1. **Built-in defaults**
+2. **Global** — `~/.narrate/settings.json`. Configure once; every project uses it.
+3. **Project** — `.narrate/settings.local.json` in the project (gitignored), or the
+   file passed via `--config`. Holds **only the values you want to override**.
+4. **CLI flags** — `--provider`, `--voice`, `--out`.
+
+Files are deep-merged key by key, so a project file like
+`{ "tts": { "elevenlabs": { "voice": "…" } } }` swaps just the voice and keeps the
+global provider, key, and everything else. (Arrays, if any, are replaced, not
+merged.) Set `NARRATE_HOME` to relocate the global `.narrate` dir (e.g. in CI).
+
+`narrate set-key` / `narrate set-voice` write to the **global** file by default;
+add `--project` to store a project-only override instead. `narrate init`
+scaffolds an empty project override file (and gitignores `.narrate/`);
+`narrate init --global` scaffolds the global one. `narrate check` shows which
+file each effective value comes from.
+
+All fields are optional — omit a file (or any field) to fall through to the layer
+below. The default provider is the **OS voice** (no key), so narrate works out of
+the box; upgrade to a cloud voice with `narrate set-key` (or the `/narrate-setup`
+skill). The full shape (valid in either file):
 
 ```jsonc
 {
@@ -89,12 +107,15 @@ Override per run with `--provider`, `--voice`, and `--out`.
 ## TTS providers & API keys
 
 Each provider has its own settings block under `tts` (voice, model, key, …), since
-they differ. The key lives in that block — `tts.<provider>.key` — in the gitignored
-`.narrate/settings.local.json`, so it's never committed. The fastest way to set one:
+they differ. The key lives in that block — `tts.<provider>.key` — normally in your
+global `~/.narrate/settings.json` (outside any repo), or in a project's gitignored
+`.narrate/settings.local.json`; either way it's never committed. The fastest way
+to set one:
 
 ```bash
-narrate set-key gemini AIza…        # writes tts.gemini.key and switches the provider
-narrate set-key elevenlabs sk_…     # writes tts.elevenlabs.key and switches the provider
+narrate set-key gemini AIza…              # global: writes tts.gemini.key and switches the provider
+narrate set-key elevenlabs sk_…           # global: writes tts.elevenlabs.key and switches the provider
+narrate set-key elevenlabs sk_… --project # only for this project (e.g. a different account)
 ```
 
 | Provider     | Settings block   | Notes                                          |
@@ -115,4 +136,4 @@ The default (`bIHbv24MWmeRgasZH58o`, "Will") is a premade voice that's free-tier
 
 For CI, a key can instead come from an env var: `NARRATE_GEMINI_API_KEY` /
 `NARRATE_ELEVENLABS_API_KEY` (or a custom name set via `tts.<provider>.apiKeyEnv`).
-The `key` in the file takes precedence; the env var is the fallback.
+A `key` in either settings file takes precedence; the env var is the fallback.

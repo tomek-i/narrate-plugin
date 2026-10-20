@@ -1,18 +1,27 @@
 export { render, type RenderOptions } from "./pipeline.js";
 export {
   loadConfig,
+  loadConfigLayers,
   loadScene,
+  mergeSettings,
+  settingOrigin,
   resolveApiKey,
   apiKeyEnvName,
   hasApiKey,
   settingsPath,
+  globalSettingsPath,
   SETTINGS_FILE,
+  GLOBAL_SETTINGS_FILE,
+  type ConfigLayer,
+  type LoadedConfig,
 } from "./config.js";
 export {
   initProject,
   setKey,
   setVoice,
   checkEnv,
+  scopePath,
+  type SettingsScope,
   type CheckResult,
   type InitResult,
 } from "./project.js";

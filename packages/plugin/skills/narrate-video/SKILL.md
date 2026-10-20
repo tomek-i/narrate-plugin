@@ -101,7 +101,8 @@ node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" <command> …
 
 (In the source monorepo you can instead use `pnpm narrate …`.)
 
-Commands: `init` (scaffold `.narrate/settings.local.json` — config + keys),
+Commands: `init` (scaffold the project override file `.narrate/settings.local.json`;
+settings + keys normally come from the global `~/.narrate/settings.json`),
 `check` (validate ffmpeg + config; exit 0/1), `render --scene <file> [--out <dir>]
 [--provider <p>] [--voice <v>]`, `auth <login-url> [--out <file>]` (log in once and
 save a session for authenticated scenes — see below), and `setup` (force-install
@@ -115,7 +116,7 @@ Playwright + Chromium; normally automatic). TTS provider/key onboarding lives in
 - The **target app running** and reachable at the scene's `site` URL.
 - **TTS works out of the box** with the OS voice (no key). For higher-quality
   cloud narration, the user can run **`/narrate-setup`** to add a Gemini/ElevenLabs
-  key (stored in the gitignored `.narrate/settings.local.json`); it's optional.
+  key (stored once, globally, in `~/.narrate/settings.json`); it's optional.
 
 ## Workflow (from a plain-English request)
 
@@ -124,9 +125,10 @@ Playwright + Chromium; normally automatic). TTS provider/key onboarding lives in
    node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" init
    node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" check
    ```
-   `init` creates `./.narrate/settings.local.json` (config + keys, gitignored,
-   defaulting to the OS voice) the first time; `check` validates ffmpeg + config and
-   prints `RESULT: PASS|FAIL`. Act on it:
+   `init` creates an empty, gitignored project override file
+   `./.narrate/settings.local.json` the first time (settings come from the global
+   `~/.narrate/settings.json`, else defaults — the OS voice); `check` validates
+   ffmpeg + config and prints `RESULT: PASS|FAIL`. Act on it:
    - **ffmpeg MISSING** → give install instructions and stop (the one hard dependency).
    - **PASS** → continue. Don't block on a key: with defaults narration uses the OS
      voice. If `check` shows `provider=os` and the user wants studio-quality narration,
@@ -264,7 +266,8 @@ Two roles — keep them separate so it doesn't look random:
 
 - **Pacing:** a beat is held for exactly its narration length. If its `do` steps
   run longer, the engine warns — split the beat or lengthen the narration.
-- **Config:** `.narrate/settings.local.json` holds output settings plus a `tts`
+- **Config:** global `~/.narrate/settings.json`, overridden per project by
+  `.narrate/settings.local.json` (deep-merged), holds output settings plus a `tts`
   block with per-provider settings nested under their own key (`tts.gemini`,
   `tts.elevenlabs` — each with its own `voice`/`model`/`key`); default is the OS
   voice (no key). Override per-run with `--provider` / `--voice`. To switch to a
