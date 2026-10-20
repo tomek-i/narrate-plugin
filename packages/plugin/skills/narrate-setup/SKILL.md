@@ -8,8 +8,9 @@ argument-hint: "[optional: gemini | elevenlabs]"
 
 narrate works immediately with the **OS's built-in voice** (no key), so this is an
 **optional upgrade** step. Run it when the user wants higher-quality cloud
-narration or to switch providers/voices. All settings and keys live in one
-gitignored file: `./.narrate/settings.local.json`.
+narration or to switch providers/voices. Settings and keys are **global** — saved
+once in `~/.narrate/settings.json` and used by every project — with optional
+per-project overrides in the gitignored `./.narrate/settings.local.json`.
 
 ## The CLI
 
@@ -21,12 +22,12 @@ node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" <command> …
 
 ## Steps
 
-1. **Scaffold.** Create the config file if it doesn't exist yet:
+1. **Check what's already set.** Run `check` first — if the global settings already
+   have the provider/key the user wants, there's nothing to do:
    ```bash
-   node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" init
+   node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" check
    ```
-   This writes `./.narrate/settings.local.json` (with sensible defaults — OS voice)
-   and ensures `.narrate/` is gitignored, so any key you add is never committed.
+   The `config:` line shows each value's origin (`global`, `project`, `default`).
 
 2. **Pick a provider + get a key.** If `$ARGUMENTS` already names a provider, use
    it; otherwise ask the user which they want:
@@ -39,7 +40,10 @@ node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" <command> …
    node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" set-key <gemini|elevenlabs> <key>
    ```
    This writes the key into that provider's block (`tts.gemini.key` /
-   `tts.elevenlabs.key`) and sets `tts.provider`. Tune the voice/model later under
+   `tts.elevenlabs.key`) and sets `tts.provider` in the **global**
+   `~/.narrate/settings.json`. Only if the user explicitly wants this setting for
+   the current project alone, add `--project` (writes the gitignored
+   `./.narrate/settings.local.json`, which overrides global). Tune the voice/model later under
    `tts.gemini` (voices like `Kore`) or `tts.elevenlabs` (an ElevenLabs voice id).
 
    **ElevenLabs voice (important on the free plan):** free plans can only use
@@ -47,7 +51,7 @@ node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" <command> …
    work varies by account. List what the key can use and lock one in:
    ```bash
    node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" voices        # shows ids + names (+ category)
-   node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" set-voice <voice_id>   # prefer a "premade" one
+   node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" set-voice <voice_id>   # prefer a "premade" one (add --project for this project only)
    ```
 
 4. **Validate.** Confirm everything is ready:
@@ -59,16 +63,19 @@ node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" <command> …
    fails with an ElevenLabs **402**, the chosen voice isn't free-tier usable — run
    `voices` and `set-voice` to switch to a `premade` one.
 
-5. **Report.** Tell the user the active provider/voice and that the key is stored in
-   the gitignored `./.narrate/settings.local.json`, so future runs of
-   `/narrate-video` and `/narrate-demo` use it automatically — no need to re-run setup.
+5. **Report.** Tell the user the active provider/voice and where it was stored. For
+   the default (global) case: it's in `~/.narrate/settings.json`, so `/narrate-video`
+   and `/narrate-demo` use it automatically in **every** project — no need to re-run
+   setup per project. Any project can still override values in its
+   `.narrate/settings.local.json`.
 
 ## Notes
 
-- **Manual edit** is fine too: open `./.narrate/settings.local.json`, set
-  `tts.provider`, and fill the matching block — `tts.<provider>.key` plus its
-  `voice`/`model`.
+- **Manual edit** is fine too: open `~/.narrate/settings.json` (global) or
+  `./.narrate/settings.local.json` (project override), set `tts.provider`, and fill
+  the matching block — `tts.<provider>.key` plus its `voice`/`model`. A project file
+  only needs the keys it overrides.
 - **CI:** instead of storing the key in the file, set `NARRATE_GEMINI_API_KEY` /
-  `NARRATE_ELEVENLABS_API_KEY` in the environment — the in-file `key` takes
+  `NARRATE_ELEVENLABS_API_KEY` in the environment — an in-file `key` takes
   precedence, the env var is the fallback (override the var name via
   `tts.<provider>.apiKeyEnv`).

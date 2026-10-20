@@ -1,14 +1,25 @@
 import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { type Config, ConfigSchema, type Scene, SceneSchema } from "./types.js";
 
-/** The single project config file. Lives in `.narrate/` (gitignored). */
+/** The project config file. Lives in `.narrate/` (gitignored); overrides global. */
 export const SETTINGS_FILE = "settings.local.json";
+
+/** The user-wide config file, in `~/.narrate/`. Shared by every project. */
+export const GLOBAL_SETTINGS_FILE = "settings.json";
 
 /** Absolute path to the project's settings file. */
 export function settingsPath(cwd: string): string {
   return resolve(cwd, ".narrate", SETTINGS_FILE);
+}
+
+/** Absolute path to the user's global settings file. `NARRATE_HOME` relocates
+ *  the `.narrate` dir (handy for tests/CI); defaults to `~/.narrate`. */
+export function globalSettingsPath(): string {
+  const home = process.env.NARRATE_HOME?.trim() || resolve(homedir(), ".narrate");
+  return resolve(home, GLOBAL_SETTINGS_FILE);
 }
 
 /** Default env var per provider — used only as a fallback when no key is in the
@@ -20,23 +31,98 @@ const KEY_ENV: Record<string, string | null> = {
   mock: null,
 };
 
-export function loadConfig(cwd: string, configPath?: string): Config {
-  const candidates = configPath
-    ? [resolve(cwd, configPath)]
-    : [
-        settingsPath(cwd),
-        // legacy locations, still honored so older projects keep working
-        resolve(cwd, ".narrate", "narrate.config.json"),
-        resolve(cwd, "narrate.config.json"),
-      ];
-  for (const p of candidates) {
-    if (existsSync(p)) {
-      // zod strips unknown keys, so an editor-only `$schema` is dropped here.
-      return ConfigSchema.parse(JSON.parse(readFileSync(p, "utf8")));
-    }
+type Raw = Record<string, unknown>;
+
+function isPlainObject(v: unknown): v is Raw {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+/** Deep-merge `over` onto `base`: nested objects merge key by key; anything else
+ *  (scalars, arrays) in `over` replaces the base value. */
+export function mergeSettings(base: Raw, over: Raw): Raw {
+  const out: Raw = { ...base };
+  for (const [k, v] of Object.entries(over)) {
+    out[k] = isPlainObject(v) && isPlainObject(out[k]) ? mergeSettings(out[k] as Raw, v) : v;
   }
-  // No file? Fall back to all-defaults (Gemini/Kore).
-  return ConfigSchema.parse({});
+  return out;
+}
+
+/** One settings file that contributed to the effective config. */
+export interface ConfigLayer {
+  scope: "global" | "project";
+  path: string;
+  raw: Raw;
+}
+
+export interface LoadedConfig {
+  config: Config;
+  /** Files that were found, lowest priority first. */
+  layers: ConfigLayer[];
+}
+
+function readRaw(path: string): Raw {
+  const raw: unknown = JSON.parse(readFileSync(path, "utf8"));
+  if (!isPlainObject(raw)) throw new Error(`Settings file is not a JSON object: ${path}`);
+  return raw;
+}
+
+/** The project settings file in use, if any (an explicit --config, else the
+ *  first existing default/legacy location). */
+function projectSettingsFile(cwd: string, configPath?: string): string | undefined {
+  if (configPath) {
+    const p = resolve(cwd, configPath);
+    if (!existsSync(p)) throw new Error(`Config file not found: ${p}`);
+    return p;
+  }
+  return [
+    settingsPath(cwd),
+    // legacy locations, still honored so older projects keep working
+    resolve(cwd, ".narrate", "narrate.config.json"),
+    resolve(cwd, "narrate.config.json"),
+  ].find((p) => existsSync(p));
+}
+
+/**
+ * Load the effective config: defaults ← global `~/.narrate/settings.json` ←
+ * project `.narrate/settings.local.json` (or `--config`). The raw JSON layers are
+ * merged *before* parsing, so the schema's defaults only fill what neither file
+ * sets — a project file never clobbers global values with defaults.
+ */
+export function loadConfigLayers(
+  cwd: string,
+  configPath?: string,
+  globalPath: string = globalSettingsPath(),
+): LoadedConfig {
+  const layers: ConfigLayer[] = [];
+  if (existsSync(globalPath)) {
+    layers.push({ scope: "global", path: globalPath, raw: readRaw(globalPath) });
+  }
+  const projectPath = projectSettingsFile(cwd, configPath);
+  if (projectPath && resolve(projectPath) !== resolve(globalPath)) {
+    layers.push({ scope: "project", path: projectPath, raw: readRaw(projectPath) });
+  }
+  const merged = layers.reduce<Raw>((acc, l) => mergeSettings(acc, l.raw), {});
+  // zod strips unknown keys, so an editor-only `$schema` is dropped here.
+  return { config: ConfigSchema.parse(merged), layers };
+}
+
+export function loadConfig(cwd: string, configPath?: string): Config {
+  return loadConfigLayers(cwd, configPath).config;
+}
+
+/** Which layer set a dotted key path (e.g. "tts.provider"), or "default". */
+export function settingOrigin(
+  layers: ConfigLayer[],
+  keyPath: string,
+): "global" | "project" | "default" {
+  for (const layer of [...layers].reverse()) {
+    let node: unknown = layer.raw;
+    for (const part of keyPath.split(".")) {
+      node = isPlainObject(node) ? node[part] : undefined;
+    }
+    if (node !== undefined) return layer.scope;
+  }
+  return "default";
 }
 
 export function loadScene(cwd: string, scenePath: string): Scene {
@@ -79,7 +165,7 @@ export function hasApiKey(config: Config): boolean {
 }
 
 /** Resolve the API key for the configured provider, with a clear error if missing.
- *  Precedence: the key in `.narrate/settings.local.json`, then the env fallback. */
+ *  Precedence: the key in the settings (project over global), then the env fallback. */
 export function resolveApiKey(config: Config): string {
   const s = providerSettings(config);
   if (!s) return ""; // os/mock
@@ -91,7 +177,7 @@ export function resolveApiKey(config: Config): string {
   const provider = config.tts.provider;
   throw new Error(
     `Missing API key for provider "${provider}". ` +
-      `Add it under tts.${provider}.key in .narrate/${SETTINGS_FILE} ` +
-      `(run \`narrate set-key ${provider} <key>\`)${envName ? ` or set ${envName}` : ""}.`,
+      `Run \`narrate set-key ${provider} <key>\` to save it in your global settings ` +
+      `(~/.narrate/${GLOBAL_SETTINGS_FILE})${envName ? `, or set ${envName}` : ""}.`,
   );
 }

@@ -15,8 +15,9 @@ the default config uses the OS's built-in voice.
    node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" init
    node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" check
    ```
-   `init` creates `./.narrate/settings.local.json` (config + keys in one file,
-   defaulting to the OS voice) and gitignores `.narrate/`. `check` validates
+   `init` creates an empty project override file `./.narrate/settings.local.json`
+   and gitignores `.narrate/`; settings come from the global
+   `~/.narrate/settings.json` (else defaults — the OS voice). `check` validates
    ffmpeg + config and prints `RESULT: PASS|FAIL` (exit 0/1). Act on it:
    - **ffmpeg MISSING** → tell the user how to install it, then stop (the one hard
      dependency). On Linux the OS voice also needs `espeak`.

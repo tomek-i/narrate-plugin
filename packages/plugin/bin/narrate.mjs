@@ -3059,14 +3059,15 @@ var {
 
 // src/auth.ts
 import { mkdirSync as mkdirSync2 } from "fs";
-import { dirname as dirname3, isAbsolute, relative, resolve as resolve2 } from "path";
+import { dirname as dirname4, isAbsolute, relative, resolve as resolve2 } from "path";
 
 // src/project.ts
 import { existsSync as existsSync2, mkdirSync, readFileSync as readFileSync2, writeFileSync as writeFileSync2 } from "fs";
-import { join } from "path";
+import { dirname as dirname2, join } from "path";
 
 // src/config.ts
 import { existsSync, readFileSync } from "fs";
+import { homedir } from "os";
 import { dirname, resolve } from "path";
 import { pathToFileURL } from "url";
 
@@ -7303,8 +7304,13 @@ var ConfigSchema = external_exports.object({
 
 // src/config.ts
 var SETTINGS_FILE = "settings.local.json";
+var GLOBAL_SETTINGS_FILE = "settings.json";
 function settingsPath(cwd) {
   return resolve(cwd, ".narrate", SETTINGS_FILE);
+}
+function globalSettingsPath() {
+  const home = process.env.NARRATE_HOME?.trim() || resolve(homedir(), ".narrate");
+  return resolve(home, GLOBAL_SETTINGS_FILE);
 }
 var KEY_ENV = {
   gemini: "NARRATE_GEMINI_API_KEY",
@@ -7312,19 +7318,58 @@ var KEY_ENV = {
   os: null,
   mock: null
 };
-function loadConfig(cwd, configPath) {
-  const candidates = configPath ? [resolve(cwd, configPath)] : [
+function isPlainObject(v) {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+function mergeSettings(base, over) {
+  const out = { ...base };
+  for (const [k, v] of Object.entries(over)) {
+    out[k] = isPlainObject(v) && isPlainObject(out[k]) ? mergeSettings(out[k], v) : v;
+  }
+  return out;
+}
+function readRaw(path) {
+  const raw = JSON.parse(readFileSync(path, "utf8"));
+  if (!isPlainObject(raw)) throw new Error(`Settings file is not a JSON object: ${path}`);
+  return raw;
+}
+function projectSettingsFile(cwd, configPath) {
+  if (configPath) {
+    const p = resolve(cwd, configPath);
+    if (!existsSync(p)) throw new Error(`Config file not found: ${p}`);
+    return p;
+  }
+  return [
     settingsPath(cwd),
     // legacy locations, still honored so older projects keep working
     resolve(cwd, ".narrate", "narrate.config.json"),
     resolve(cwd, "narrate.config.json")
-  ];
-  for (const p of candidates) {
-    if (existsSync(p)) {
-      return ConfigSchema.parse(JSON.parse(readFileSync(p, "utf8")));
-    }
+  ].find((p) => existsSync(p));
+}
+function loadConfigLayers(cwd, configPath, globalPath = globalSettingsPath()) {
+  const layers = [];
+  if (existsSync(globalPath)) {
+    layers.push({ scope: "global", path: globalPath, raw: readRaw(globalPath) });
   }
-  return ConfigSchema.parse({});
+  const projectPath = projectSettingsFile(cwd, configPath);
+  if (projectPath && resolve(projectPath) !== resolve(globalPath)) {
+    layers.push({ scope: "project", path: projectPath, raw: readRaw(projectPath) });
+  }
+  const merged = layers.reduce((acc, l) => mergeSettings(acc, l.raw), {});
+  return { config: ConfigSchema.parse(merged), layers };
+}
+function loadConfig(cwd, configPath) {
+  return loadConfigLayers(cwd, configPath).config;
+}
+function settingOrigin(layers, keyPath) {
+  for (const layer of [...layers].reverse()) {
+    let node = layer.raw;
+    for (const part of keyPath.split(".")) {
+      node = isPlainObject(node) ? node[part] : void 0;
+    }
+    if (node !== void 0) return layer.scope;
+  }
+  return "default";
 }
 function loadScene(cwd, scenePath) {
   const p = resolve(cwd, scenePath);
@@ -7363,7 +7408,7 @@ function resolveApiKey(config) {
   if (fromEnv) return fromEnv;
   const provider = config.tts.provider;
   throw new Error(
-    `Missing API key for provider "${provider}". Add it under tts.${provider}.key in .narrate/${SETTINGS_FILE} (run \`narrate set-key ${provider} <key>\`)${envName ? ` or set ${envName}` : ""}.`
+    `Missing API key for provider "${provider}". Run \`narrate set-key ${provider} <key>\` to save it in your global settings (~/.narrate/${GLOBAL_SETTINGS_FILE})${envName ? `, or set ${envName}` : ""}.`
   );
 }
 
@@ -7501,10 +7546,19 @@ function hasAudioStream(file) {
 // src/project.ts
 var SCHEMA_URL = "https://raw.githubusercontent.com/tomek-i/narrate-plugin/main/narrate.schema.json";
 function settingsTemplate() {
-  return {
-    $schema: SCHEMA_URL,
-    ...ConfigSchema.parse({})
-  };
+  return { $schema: SCHEMA_URL };
+}
+function scopePath(cwd, scope) {
+  return scope === "global" ? globalSettingsPath() : settingsPath(cwd);
+}
+function readForEdit(path) {
+  mkdirSync(dirname2(path), { recursive: true });
+  return existsSync2(path) ? JSON.parse(readFileSync2(path, "utf8")) : settingsTemplate();
+}
+function writeSettings(cwd, scope, path, raw) {
+  writeFileSync2(path, `${JSON.stringify(raw, null, 2)}
+`);
+  if (scope === "project") ensureGitignore(cwd, ".narrate/");
 }
 function ensureGitignore(cwd, entry) {
   const p = join(cwd, ".gitignore");
@@ -7514,10 +7568,9 @@ function ensureGitignore(cwd, entry) {
   writeFileSync2(p, `${existing}${prefix}${entry}
 `);
 }
-function initProject(cwd, log = console.log) {
-  const dir = join(cwd, ".narrate");
-  mkdirSync(dir, { recursive: true });
-  const path = settingsPath(cwd);
+function initProject(cwd, log = console.log, scope = "project") {
+  const path = scopePath(cwd, scope);
+  mkdirSync(dirname2(path), { recursive: true });
   let created = false;
   if (existsSync2(path)) {
     log(`exists: ${path}`);
@@ -7527,47 +7580,46 @@ function initProject(cwd, log = console.log) {
     created = true;
     log(`created: ${path}`);
   }
-  ensureGitignore(cwd, ".narrate/");
-  log(`\`.narrate/\` is gitignored. Edit .narrate/${SETTINGS_FILE} (config + keys).`);
+  if (scope === "project") {
+    ensureGitignore(cwd, ".narrate/");
+    log(
+      `\`.narrate/\` is gitignored. Settings come from ${globalSettingsPath()}; put project-only overrides in .narrate/${SETTINGS_FILE}.`
+    );
+  }
   return { created, path };
 }
-function setKey(cwd, provider, key, log = console.log) {
-  const dir = join(cwd, ".narrate");
-  mkdirSync(dir, { recursive: true });
-  const path = settingsPath(cwd);
-  const raw = existsSync2(path) ? JSON.parse(readFileSync2(path, "utf8")) : settingsTemplate();
+function setKey(cwd, provider, key, log = console.log, scope = "global") {
+  const path = scopePath(cwd, scope);
+  const raw = readForEdit(path);
   const tts = { ...raw.tts };
   const block = { ...tts[provider] };
   block.key = key.trim();
   tts[provider] = block;
   tts.provider = provider;
   raw.tts = tts;
-  writeFileSync2(path, `${JSON.stringify(raw, null, 2)}
-`);
-  ensureGitignore(cwd, ".narrate/");
+  writeSettings(cwd, scope, path, raw);
   log(`set tts.${provider}.key and tts.provider="${provider}" in ${path}`);
   return path;
 }
-function setVoice(cwd, voice, log = console.log) {
-  const path = settingsPath(cwd);
-  const raw = existsSync2(path) ? JSON.parse(readFileSync2(path, "utf8")) : settingsTemplate();
-  const tts = { ...raw.tts };
-  const provider = tts.provider ?? "os";
+function setVoice(cwd, voice, log = console.log, scope = "global") {
+  const provider = loadConfig(cwd).tts.provider;
   if (provider !== "gemini" && provider !== "elevenlabs") {
     throw new Error(
       `Active provider is "${provider}", which has no configurable voice id. Switch first with \`narrate set-key <gemini|elevenlabs> <key>\`.`
     );
   }
+  const path = scopePath(cwd, scope);
+  const raw = readForEdit(path);
+  const tts = { ...raw.tts };
   const block = { ...tts[provider] };
   block.voice = voice.trim();
   tts[provider] = block;
   raw.tts = tts;
-  writeFileSync2(path, `${JSON.stringify(raw, null, 2)}
-`);
+  writeSettings(cwd, scope, path, raw);
   log(`set tts.${provider}.voice="${voice.trim()}" in ${path}`);
   return path;
 }
-function checkEnv(config) {
+function checkEnv(config, layers = []) {
   const lines = [];
   let ok = true;
   try {
@@ -7579,17 +7631,25 @@ function checkEnv(config) {
   }
   const provider = config.tts.provider;
   const voice = provider === "gemini" ? config.tts.gemini.voice : provider === "elevenlabs" ? config.tts.elevenlabs.voice : "\u2014";
+  const from = (keyPath) => settingOrigin(layers, keyPath);
+  const voiceFrom = provider === "gemini" || provider === "elevenlabs" ? from(`tts.${provider}.voice`) : null;
   lines.push(
-    `config:  provider=${provider}, voice=${voice}, format=${config.output.format}, crf=${config.output.crf}`
+    `config:  provider=${provider} (${from("tts.provider")}), voice=${voice}${voiceFrom ? ` (${voiceFrom})` : ""}, format=${config.output.format}, crf=${config.output.crf}`
+  );
+  lines.push(
+    `files:   ${layers.length ? layers.map((l) => `${l.scope}=${l.path}`).join(", ") : "none (all defaults)"}`
   );
   if (provider === "os" || provider === "mock") {
     lines.push(`TTS key: not required (provider "${provider}")`);
   } else if (hasApiKey(config)) {
-    lines.push(`TTS key: OK (tts.${provider}.key set in .narrate/${SETTINGS_FILE})`);
+    const keyFrom = from(`tts.${provider}.key`);
+    lines.push(
+      `TTS key: OK (${keyFrom === "default" ? "from env" : `tts.${provider}.key, ${keyFrom}`})`
+    );
   } else {
     ok = false;
     lines.push(
-      `TTS key: MISSING \u2014 add it under tts.${provider}.key in .narrate/${SETTINGS_FILE} (or run \`narrate set-key ${provider} <key>\`; or use --provider os for the OS voice / mock for silent)`
+      `TTS key: MISSING \u2014 run \`narrate set-key ${provider} <key>\` (saves to ${globalSettingsPath()}; add --project for a project-only key in .narrate/${SETTINGS_FILE}), or use --provider os for the OS voice / mock for silent`
     );
   }
   lines.push(`RESULT:  ${ok ? "PASS" : "FAIL"}`);
@@ -7618,14 +7678,14 @@ function interpolateEnv(text, env = process.env) {
 // src/setup.ts
 import { execFileSync as execFileSync2 } from "child_process";
 import { existsSync as existsSync3 } from "fs";
-import { dirname as dirname2, join as join2 } from "path";
+import { dirname as dirname3, join as join2 } from "path";
 import { fileURLToPath } from "url";
 var isWin = process.platform === "win32";
 function packageRoot() {
-  let dir = dirname2(fileURLToPath(import.meta.url));
+  let dir = dirname3(fileURLToPath(import.meta.url));
   for (let i = 0; i < 8; i++) {
     if (existsSync3(join2(dir, "package.json"))) return dir;
-    const parent = dirname2(dir);
+    const parent = dirname3(dir);
     if (parent === dir) break;
     dir = parent;
   }
@@ -8138,7 +8198,7 @@ function underNarrateDir(cwd, abs) {
 async function captureAuth(opts) {
   const log = (m) => opts.onLog?.(m);
   const out = resolve2(opts.cwd, opts.out);
-  mkdirSync2(dirname3(out), { recursive: true });
+  mkdirSync2(dirname4(out), { recursive: true });
   if (!await hasPlaywright()) {
     log("First run: provisioning the headless browser (one-time)\u2026");
     installPlaywrightPackage(log);
@@ -8603,9 +8663,10 @@ async function listVoices(config) {
 }
 
 // src/cli.ts
+var CONFIG_HELP = "project config file, layered over ~/.narrate/settings.json (default: .narrate/settings.local.json)";
 var program2 = new Command();
 program2.name("narrate").description("Generate a narrated walkthrough video of a website.").version("0.21.0");
-program2.command("render").description("TTS \u2192 record \u2192 mux into one narrated video.").requiredOption("-s, --scene <file>", "scene JSON file").option("-c, --config <file>", "config file (default: .narrate/settings.local.json)").option("-o, --out <dir>", "output directory (overrides config output.dir)").option("--provider <name>", "override TTS provider (gemini|elevenlabs|os|mock)").option("--voice <name>", "override voice").action(async (o) => {
+program2.command("render").description("TTS \u2192 record \u2192 mux into one narrated video.").requiredOption("-s, --scene <file>", "scene JSON file").option("-c, --config <file>", CONFIG_HELP).option("-o, --out <dir>", "output directory (overrides config output.dir)").option("--provider <name>", "override TTS provider (gemini|elevenlabs|os|mock)").option("--voice <name>", "override voice").action(async (o) => {
   const cwd = process.cwd();
   const config = loadConfig(cwd, o.config);
   if (o.provider) config.tts.provider = o.provider;
@@ -8623,14 +8684,18 @@ program2.command("render").description("TTS \u2192 record \u2192 mux into one na
   console.log(`
 \u2705 Done \u2192 ${out}`);
 });
-program2.command("init").description("Scaffold .narrate/settings.local.json (config + keys) in the current project.").action(() => {
-  initProject(process.cwd(), (m) => console.log(m));
+program2.command("init").description(
+  "Scaffold .narrate/settings.local.json (project overrides) in the current project, or ~/.narrate/settings.json with --global."
+).option("-g, --global", "scaffold the user-wide settings file instead").action((o) => {
+  initProject(process.cwd(), (m) => console.log(m), o.global ? "global" : "project");
 });
-program2.command("set-key").description("Save an API key into .narrate/settings.local.json and switch to that provider.").argument("<provider>", "gemini | elevenlabs").argument("<key>", "the API key").action((provider, key) => {
+program2.command("set-key").description(
+  "Save an API key into your global settings (~/.narrate/settings.json) and switch to that provider."
+).argument("<provider>", "gemini | elevenlabs").argument("<key>", "the API key").option("-p, --project", "save to this project's .narrate/settings.local.json instead").action((provider, key, o) => {
   if (provider !== "gemini" && provider !== "elevenlabs") {
     throw new Error(`Unknown provider "${provider}" (expected gemini or elevenlabs).`);
   }
-  setKey(process.cwd(), provider, key, (m) => console.log(m));
+  setKey(process.cwd(), provider, key, (m) => console.log(m), o.project ? "project" : "global");
 });
 program2.command("auth").description(
   "Open a browser to log in once; saves the session so authenticated scenes start signed in."
@@ -8645,7 +8710,7 @@ program2.command("auth").description(
 \u2705 Saved session \u2192 ${out}`);
   console.log(`Use it in a scene:  "auth": { "storageState": "${o.out}" }`);
 });
-program2.command("voices").description("List TTS voices your configured key can use (helps pick a free-tier voice).").option("-c, --config <file>", "config file (default: .narrate/settings.local.json)").action(async (o) => {
+program2.command("voices").description("List TTS voices your configured key can use (helps pick a free-tier voice).").option("-c, --config <file>", CONFIG_HELP).action(async (o) => {
   const { provider, voices, note } = await listVoices(loadConfig(process.cwd(), o.config));
   if (note) console.log(note);
   for (const v of voices) {
@@ -8655,12 +8720,15 @@ program2.command("voices").description("List TTS voices your configured key can 
     console.log("\nLock one in with: narrate set-voice <voice_id>");
   }
 });
-program2.command("set-voice").description("Set the active provider's voice in .narrate/settings.local.json.").argument("<voice>", "voice id (elevenlabs) or name (gemini)").action((voice) => {
-  setVoice(process.cwd(), voice, (m) => console.log(m));
+program2.command("set-voice").description(
+  "Set the active provider's voice in your global settings (~/.narrate/settings.json)."
+).argument("<voice>", "voice id (elevenlabs) or name (gemini)").option("-p, --project", "save to this project's .narrate/settings.local.json instead").action((voice, o) => {
+  setVoice(process.cwd(), voice, (m) => console.log(m), o.project ? "project" : "global");
 });
-program2.command("check").description("Validate the environment (ffmpeg, config, TTS key). Exits non-zero if not ready.").option("-c, --config <file>", "config file (default: .narrate/settings.local.json)").action((o) => {
+program2.command("check").description("Validate the environment (ffmpeg, config, TTS key). Exits non-zero if not ready.").option("-c, --config <file>", CONFIG_HELP).action((o) => {
   const cwd = process.cwd();
-  const result = checkEnv(loadConfig(cwd, o.config));
+  const { config, layers } = loadConfigLayers(cwd, o.config);
+  const result = checkEnv(config, layers);
   for (const line of result.lines) console.log(line);
   if (!result.ok) process.exit(1);
 });

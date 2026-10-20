@@ -1,8 +1,16 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import { SETTINGS_FILE, hasApiKey, settingsPath } from "./config.js";
+import { dirname, join } from "node:path";
+import {
+  type ConfigLayer,
+  SETTINGS_FILE,
+  globalSettingsPath,
+  hasApiKey,
+  loadConfig,
+  settingOrigin,
+  settingsPath,
+} from "./config.js";
 import { ensureFfmpeg } from "./mux/ffmpeg.js";
-import { type Config, ConfigSchema } from "./types.js";
+import type { Config } from "./types.js";
 
 /**
  * Hosted JSON Schema for editor autocomplete. A relative path can't work: the
@@ -13,12 +21,38 @@ import { type Config, ConfigSchema } from "./types.js";
 const SCHEMA_URL =
   "https://raw.githubusercontent.com/tomek-i/narrate-plugin/main/narrate.schema.json";
 
-/** The on-disk shape of settings.local.json (config + an editor `$schema`). */
+/** Where a settings write goes: the user's global file (default) or this project's. */
+export type SettingsScope = "global" | "project";
+
+/**
+ * A fresh settings file holds only `$schema`. Every other field falls through to
+ * the layer below (project → global → defaults), so scaffolding never pins
+ * default values that would mask the user's global settings.
+ */
 function settingsTemplate(): Record<string, unknown> {
-  return {
-    $schema: SCHEMA_URL,
-    ...ConfigSchema.parse({}),
-  };
+  return { $schema: SCHEMA_URL };
+}
+
+/** Path of the settings file for a scope. */
+export function scopePath(cwd: string, scope: SettingsScope): string {
+  return scope === "global" ? globalSettingsPath() : settingsPath(cwd);
+}
+
+/** Read a settings file for editing (or a fresh template), creating its dir. */
+function readForEdit(path: string): Record<string, unknown> {
+  mkdirSync(dirname(path), { recursive: true });
+  return existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : settingsTemplate();
+}
+
+/** Write an edited settings file; project files also get `.narrate/` gitignored. */
+function writeSettings(
+  cwd: string,
+  scope: SettingsScope,
+  path: string,
+  raw: Record<string, unknown>,
+): void {
+  writeFileSync(path, `${JSON.stringify(raw, null, 2)}\n`);
+  if (scope === "project") ensureGitignore(cwd, ".narrate/");
 }
 
 /** Append a line to (or create) the project .gitignore if it's not already there. */
@@ -31,22 +65,26 @@ export function ensureGitignore(cwd: string, entry: string): void {
 }
 
 export interface InitResult {
-  /** True if settings.local.json was just created (→ run onboarding). */
+  /** True if the settings file was just created (→ run onboarding). */
   created: boolean;
   path: string;
 }
 
 /**
- * Scaffold `.narrate/settings.local.json` (config + API keys in one file) and
- * make sure `.narrate/` is gitignored. Idempotent — never overwrites an existing
- * file. `created` tells the caller whether this is a first-time setup so it can
- * run onboarding; on later runs the file exists and onboarding is skipped.
+ * Scaffold a settings file. For a project (the default), that's an override-only
+ * `.narrate/settings.local.json` plus a gitignored `.narrate/`; with
+ * `scope: "global"`, it's `~/.narrate/settings.json`. Idempotent — never
+ * overwrites an existing file. `created` tells the caller whether this is a
+ * first-time setup so it can run onboarding.
  */
-export function initProject(cwd: string, log: (msg: string) => void = console.log): InitResult {
-  const dir = join(cwd, ".narrate");
-  mkdirSync(dir, { recursive: true });
+export function initProject(
+  cwd: string,
+  log: (msg: string) => void = console.log,
+  scope: SettingsScope = "project",
+): InitResult {
+  const path = scopePath(cwd, scope);
+  mkdirSync(dirname(path), { recursive: true });
 
-  const path = settingsPath(cwd);
   let created = false;
   if (existsSync(path)) {
     log(`exists: ${path}`);
@@ -56,29 +94,30 @@ export function initProject(cwd: string, log: (msg: string) => void = console.lo
     log(`created: ${path}`);
   }
 
-  ensureGitignore(cwd, ".narrate/");
-  log(`\`.narrate/\` is gitignored. Edit .narrate/${SETTINGS_FILE} (config + keys).`);
+  if (scope === "project") {
+    ensureGitignore(cwd, ".narrate/");
+    log(
+      `\`.narrate/\` is gitignored. Settings come from ${globalSettingsPath()}; ` +
+        `put project-only overrides in .narrate/${SETTINGS_FILE}.`,
+    );
+  }
   return { created, path };
 }
 
 /**
- * Write an API key into `.narrate/settings.local.json` and switch the active
- * provider to it. Used by onboarding so keys never have to be hand-edited into
- * JSON. Creates the file from defaults if it doesn't exist yet.
+ * Write an API key and switch the active provider to it. Goes to the global
+ * settings by default, so it's set once for every project; `scope: "project"`
+ * stores a project-only override instead. Creates the file if needed.
  */
 export function setKey(
   cwd: string,
   provider: "gemini" | "elevenlabs",
   key: string,
   log: (msg: string) => void = console.log,
+  scope: SettingsScope = "global",
 ): string {
-  const dir = join(cwd, ".narrate");
-  mkdirSync(dir, { recursive: true });
-  const path = settingsPath(cwd);
-
-  const raw: Record<string, unknown> = existsSync(path)
-    ? JSON.parse(readFileSync(path, "utf8"))
-    : settingsTemplate();
+  const path = scopePath(cwd, scope);
+  const raw = readForEdit(path);
 
   const tts = { ...(raw.tts as Record<string, unknown> | undefined) };
   const block = { ...(tts[provider] as Record<string, unknown> | undefined) };
@@ -87,38 +126,36 @@ export function setKey(
   tts.provider = provider;
   raw.tts = tts;
 
-  writeFileSync(path, `${JSON.stringify(raw, null, 2)}\n`);
-  ensureGitignore(cwd, ".narrate/");
+  writeSettings(cwd, scope, path, raw);
   log(`set tts.${provider}.key and tts.provider="${provider}" in ${path}`);
   return path;
 }
 
 /**
- * Set the voice for the currently-active provider (gemini/elevenlabs) in
- * `.narrate/settings.local.json`. Used after `narrate voices` to lock in a voice
- * the key can actually use.
+ * Set the voice for the currently-active provider (gemini/elevenlabs). The active
+ * provider is read from the effective (merged) config, so a provider chosen
+ * globally works with a project-scoped voice. Used after `narrate voices`.
  */
 export function setVoice(
   cwd: string,
   voice: string,
   log: (msg: string) => void = console.log,
+  scope: SettingsScope = "global",
 ): string {
-  const path = settingsPath(cwd);
-  const raw: Record<string, unknown> = existsSync(path)
-    ? JSON.parse(readFileSync(path, "utf8"))
-    : settingsTemplate();
-  const tts = { ...(raw.tts as Record<string, unknown> | undefined) };
-  const provider = (tts.provider as string) ?? "os";
+  const provider = loadConfig(cwd).tts.provider;
   if (provider !== "gemini" && provider !== "elevenlabs") {
     throw new Error(
       `Active provider is "${provider}", which has no configurable voice id. Switch first with \`narrate set-key <gemini|elevenlabs> <key>\`.`,
     );
   }
+  const path = scopePath(cwd, scope);
+  const raw = readForEdit(path);
+  const tts = { ...(raw.tts as Record<string, unknown> | undefined) };
   const block = { ...(tts[provider] as Record<string, unknown> | undefined) };
   block.voice = voice.trim();
   tts[provider] = block;
   raw.tts = tts;
-  writeFileSync(path, `${JSON.stringify(raw, null, 2)}\n`);
+  writeSettings(cwd, scope, path, raw);
   log(`set tts.${provider}.voice="${voice.trim()}" in ${path}`);
   return path;
 }
@@ -132,7 +169,7 @@ export interface CheckResult {
  * Deterministic preflight: ffmpeg present, config readable, and an API key set
  * for the configured provider (os/mock need none). No LLM, no network.
  */
-export function checkEnv(config: Config): CheckResult {
+export function checkEnv(config: Config, layers: ConfigLayer[] = []): CheckResult {
   const lines: string[] = [];
   let ok = true;
 
@@ -151,19 +188,28 @@ export function checkEnv(config: Config): CheckResult {
       : provider === "elevenlabs"
         ? config.tts.elevenlabs.voice
         : "—";
+  const from = (keyPath: string) => settingOrigin(layers, keyPath);
+  const voiceFrom =
+    provider === "gemini" || provider === "elevenlabs" ? from(`tts.${provider}.voice`) : null;
   lines.push(
-    `config:  provider=${provider}, voice=${voice}, format=${config.output.format}, crf=${config.output.crf}`,
+    `config:  provider=${provider} (${from("tts.provider")}), voice=${voice}${voiceFrom ? ` (${voiceFrom})` : ""}, ` +
+      `format=${config.output.format}, crf=${config.output.crf}`,
+  );
+  lines.push(
+    `files:   ${layers.length ? layers.map((l) => `${l.scope}=${l.path}`).join(", ") : "none (all defaults)"}`,
   );
 
   if (provider === "os" || provider === "mock") {
     lines.push(`TTS key: not required (provider "${provider}")`);
   } else if (hasApiKey(config)) {
-    lines.push(`TTS key: OK (tts.${provider}.key set in .narrate/${SETTINGS_FILE})`);
+    const keyFrom = from(`tts.${provider}.key`);
+    lines.push(
+      `TTS key: OK (${keyFrom === "default" ? "from env" : `tts.${provider}.key, ${keyFrom}`})`,
+    );
   } else {
     ok = false;
     lines.push(
-      `TTS key: MISSING — add it under tts.${provider}.key in .narrate/${SETTINGS_FILE} ` +
-        `(or run \`narrate set-key ${provider} <key>\`; or use --provider os for the OS voice / mock for silent)`,
+      `TTS key: MISSING — run \`narrate set-key ${provider} <key>\` (saves to ${globalSettingsPath()}; add --project for a project-only key in .narrate/${SETTINGS_FILE}), or use --provider os for the OS voice / mock for silent`,
     );
   }
 

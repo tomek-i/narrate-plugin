@@ -1,11 +1,14 @@
 #!/usr/bin/env node
 import { Command } from "commander";
 import { captureAuth } from "./auth.js";
-import { loadConfig, loadScene } from "./config.js";
+import { loadConfig, loadConfigLayers, loadScene } from "./config.js";
 import { render } from "./pipeline.js";
 import { checkEnv, initProject, setKey, setVoice } from "./project.js";
 import { setup } from "./setup.js";
 import { listVoices } from "./tts/voices.js";
+
+const CONFIG_HELP =
+  "project config file, layered over ~/.narrate/settings.json (default: .narrate/settings.local.json)";
 
 const program = new Command();
 
@@ -18,7 +21,7 @@ program
   .command("render")
   .description("TTS → record → mux into one narrated video.")
   .requiredOption("-s, --scene <file>", "scene JSON file")
-  .option("-c, --config <file>", "config file (default: .narrate/settings.local.json)")
+  .option("-c, --config <file>", CONFIG_HELP)
   .option("-o, --out <dir>", "output directory (overrides config output.dir)")
   .option("--provider <name>", "override TTS provider (gemini|elevenlabs|os|mock)")
   .option("--voice <name>", "override voice")
@@ -43,21 +46,27 @@ program
 
 program
   .command("init")
-  .description("Scaffold .narrate/settings.local.json (config + keys) in the current project.")
-  .action(() => {
-    initProject(process.cwd(), (m) => console.log(m));
+  .description(
+    "Scaffold .narrate/settings.local.json (project overrides) in the current project, or ~/.narrate/settings.json with --global.",
+  )
+  .option("-g, --global", "scaffold the user-wide settings file instead")
+  .action((o: { global?: boolean }) => {
+    initProject(process.cwd(), (m) => console.log(m), o.global ? "global" : "project");
   });
 
 program
   .command("set-key")
-  .description("Save an API key into .narrate/settings.local.json and switch to that provider.")
+  .description(
+    "Save an API key into your global settings (~/.narrate/settings.json) and switch to that provider.",
+  )
   .argument("<provider>", "gemini | elevenlabs")
   .argument("<key>", "the API key")
-  .action((provider: string, key: string) => {
+  .option("-p, --project", "save to this project's .narrate/settings.local.json instead")
+  .action((provider: string, key: string, o: { project?: boolean }) => {
     if (provider !== "gemini" && provider !== "elevenlabs") {
       throw new Error(`Unknown provider "${provider}" (expected gemini or elevenlabs).`);
     }
-    setKey(process.cwd(), provider, key, (m) => console.log(m));
+    setKey(process.cwd(), provider, key, (m) => console.log(m), o.project ? "project" : "global");
   });
 
 program
@@ -81,7 +90,7 @@ program
 program
   .command("voices")
   .description("List TTS voices your configured key can use (helps pick a free-tier voice).")
-  .option("-c, --config <file>", "config file (default: .narrate/settings.local.json)")
+  .option("-c, --config <file>", CONFIG_HELP)
   .action(async (o) => {
     const { provider, voices, note } = await listVoices(loadConfig(process.cwd(), o.config));
     if (note) console.log(note);
@@ -95,19 +104,23 @@ program
 
 program
   .command("set-voice")
-  .description("Set the active provider's voice in .narrate/settings.local.json.")
+  .description(
+    "Set the active provider's voice in your global settings (~/.narrate/settings.json).",
+  )
   .argument("<voice>", "voice id (elevenlabs) or name (gemini)")
-  .action((voice: string) => {
-    setVoice(process.cwd(), voice, (m) => console.log(m));
+  .option("-p, --project", "save to this project's .narrate/settings.local.json instead")
+  .action((voice: string, o: { project?: boolean }) => {
+    setVoice(process.cwd(), voice, (m) => console.log(m), o.project ? "project" : "global");
   });
 
 program
   .command("check")
   .description("Validate the environment (ffmpeg, config, TTS key). Exits non-zero if not ready.")
-  .option("-c, --config <file>", "config file (default: .narrate/settings.local.json)")
+  .option("-c, --config <file>", CONFIG_HELP)
   .action((o) => {
     const cwd = process.cwd();
-    const result = checkEnv(loadConfig(cwd, o.config));
+    const { config, layers } = loadConfigLayers(cwd, o.config);
+    const result = checkEnv(config, layers);
     for (const line of result.lines) console.log(line);
     if (!result.ok) process.exit(1);
   });
