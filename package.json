@@ -1,6 +1,6 @@
 {
   "name": "narrate-monorepo",
-  "version": "0.21.0",
+  "version": "0.22.0",
   "private": true,
   "description": "Generate narrated walkthrough videos of a website using a headless browser + text-to-speech.",
   "author": {
@@ -27,7 +27,10 @@
     "typescript": "^5.7.0"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["@biomejs/biome", "esbuild"],
+    "onlyBuiltDependencies": [
+      "@biomejs/biome",
+      "esbuild"
+    ],
     "overrides": {
       "esbuild": ">=0.28.1"
     }
