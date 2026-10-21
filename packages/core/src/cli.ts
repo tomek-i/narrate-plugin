@@ -4,7 +4,7 @@ import { captureAuth } from "./auth.js";
 import { loadConfig, loadConfigLayers, loadScene } from "./config.js";
 import { render } from "./pipeline.js";
 import { checkEnv, initProject, setKey, setVoice } from "./project.js";
-import { setup } from "./setup.js";
+import { packageVersion, setup } from "./setup.js";
 import { listVoices } from "./tts/voices.js";
 
 const CONFIG_HELP =
@@ -15,7 +15,7 @@ const program = new Command();
 program
   .name("narrate")
   .description("Generate a narrated walkthrough video of a website.")
-  .version("0.21.0");
+  .version(packageVersion());
 
 program
   .command("render")

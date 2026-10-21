@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -15,6 +15,12 @@ function packageRoot(): string {
     dir = parent;
   }
   return dir;
+}
+
+/** Version from the nearest package.json, kept in sync by release-please. */
+export function packageVersion(): string {
+  const pkg = JSON.parse(readFileSync(join(packageRoot(), "package.json"), "utf8"));
+  return pkg.version;
 }
 
 /**
