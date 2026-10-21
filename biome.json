@@ -21,6 +21,17 @@
     "enabled": true,
     "rules": { "recommended": true }
   },
+  "overrides": [
+    {
+      "include": [
+        "package.json",
+        "packages/*/package.json",
+        "packages/plugin/.claude-plugin/plugin.json",
+        ".release-please-manifest.json"
+      ],
+      "formatter": { "enabled": false }
+    }
+  ],
   "javascript": {
     "formatter": { "quoteStyle": "double", "trailingCommas": "all" }
   }
