@@ -3062,7 +3062,7 @@ import { mkdirSync as mkdirSync2 } from "fs";
 import { dirname as dirname4, isAbsolute, relative, resolve as resolve2 } from "path";
 
 // src/project.ts
-import { existsSync as existsSync2, mkdirSync, readFileSync as readFileSync2, writeFileSync as writeFileSync2 } from "fs";
+import { existsSync as existsSync2, mkdirSync, readFileSync as readFileSync3, writeFileSync as writeFileSync2 } from "fs";
 import { dirname as dirname2, join } from "path";
 
 // src/config.ts
@@ -7543,6 +7543,68 @@ function hasAudioStream(file) {
   return out.trim().length > 0;
 }
 
+// src/secret.ts
+import { execFileSync as execFileSync2 } from "child_process";
+import { readFileSync as readFileSync2 } from "fs";
+import { createInterface } from "readline";
+function maskKey(key) {
+  return key.length <= 8 ? "\u2026" : `${key.slice(0, 3)}\u2026${key.slice(-4)}`;
+}
+function readClipboard() {
+  const candidates = process.platform === "win32" ? [["powershell.exe", ["-NoProfile", "-Command", "Get-Clipboard -Raw"]]] : process.platform === "darwin" ? [["pbpaste", []]] : [
+    ["wl-paste", ["--no-newline"]],
+    ["xclip", ["-selection", "clipboard", "-o"]],
+    ["xsel", ["--clipboard", "--output"]]
+  ];
+  for (const [cmd, args] of candidates) {
+    try {
+      return execFileSync2(cmd, args, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+    } catch {
+    }
+  }
+  throw new Error("Couldn't read the clipboard (on Linux install wl-paste, xclip or xsel).");
+}
+function promptHidden(question) {
+  return new Promise((resolve4) => {
+    const rl = createInterface({ input: process.stdin, output: process.stdout, terminal: true });
+    const out = rl;
+    let prompted = false;
+    out._writeToOutput = (s) => {
+      if (!prompted) {
+        prompted = true;
+        process.stdout.write(s);
+      }
+    };
+    rl.question(question, (answer) => {
+      rl.close();
+      process.stdout.write("\n");
+      resolve4(answer);
+    });
+  });
+}
+async function readSecret(o) {
+  let key;
+  if (o.clipboard) key = readClipboard();
+  else if (process.stdin.isTTY) key = await promptHidden(`${o.label}: `);
+  else {
+    try {
+      key = readFileSync2(0, "utf8");
+    } catch {
+      key = "";
+    }
+  }
+  key = key.trim();
+  if (!key) {
+    throw new Error(
+      o.clipboard ? "The clipboard is empty: copy the key first." : "No key given. Copy it and re-run with --clipboard, or pipe it on stdin."
+    );
+  }
+  if (/\s/.test(key)) {
+    throw new Error("That doesn't look like an API key (it contains whitespace).");
+  }
+  return key;
+}
+
 // src/project.ts
 var SCHEMA_URL = "https://raw.githubusercontent.com/tomek-i/narrate-plugin/main/narrate.schema.json";
 function settingsTemplate() {
@@ -7553,7 +7615,7 @@ function scopePath(cwd, scope) {
 }
 function readForEdit(path) {
   mkdirSync(dirname2(path), { recursive: true });
-  return existsSync2(path) ? JSON.parse(readFileSync2(path, "utf8")) : settingsTemplate();
+  return existsSync2(path) ? JSON.parse(readFileSync3(path, "utf8")) : settingsTemplate();
 }
 function writeSettings(cwd, scope, path, raw) {
   writeFileSync2(path, `${JSON.stringify(raw, null, 2)}
@@ -7562,7 +7624,7 @@ function writeSettings(cwd, scope, path, raw) {
 }
 function ensureGitignore(cwd, entry) {
   const p = join(cwd, ".gitignore");
-  const existing = existsSync2(p) ? readFileSync2(p, "utf8") : "";
+  const existing = existsSync2(p) ? readFileSync3(p, "utf8") : "";
   if (existing.split(/\r?\n/).some((l) => l.trim() === entry)) return;
   const prefix = existing && !existing.endsWith("\n") ? "\n" : "";
   writeFileSync2(p, `${existing}${prefix}${entry}
@@ -7598,7 +7660,9 @@ function setKey(cwd, provider, key, log = console.log, scope = "global") {
   tts.provider = provider;
   raw.tts = tts;
   writeSettings(cwd, scope, path, raw);
-  log(`set tts.${provider}.key and tts.provider="${provider}" in ${path}`);
+  log(
+    `set tts.${provider}.key (${maskKey(block.key)}) and tts.provider="${provider}" in ${path}`
+  );
   return path;
 }
 function setVoice(cwd, voice, log = console.log, scope = "global") {
@@ -7676,8 +7740,8 @@ function interpolateEnv(text, env = process.env) {
 }
 
 // src/setup.ts
-import { execFileSync as execFileSync2 } from "child_process";
-import { existsSync as existsSync3, readFileSync as readFileSync3 } from "fs";
+import { execFileSync as execFileSync3 } from "child_process";
+import { existsSync as existsSync3, readFileSync as readFileSync4 } from "fs";
 import { dirname as dirname3, join as join2 } from "path";
 import { fileURLToPath } from "url";
 var isWin = process.platform === "win32";
@@ -7692,11 +7756,11 @@ function packageRoot() {
   return dir;
 }
 function packageVersion() {
-  const pkg = JSON.parse(readFileSync3(join2(packageRoot(), "package.json"), "utf8"));
+  const pkg = JSON.parse(readFileSync4(join2(packageRoot(), "package.json"), "utf8"));
   return pkg.version;
 }
 function npm(args, cwd, extraEnv = {}) {
-  execFileSync2(isWin ? "npm.cmd" : "npm", args, {
+  execFileSync3(isWin ? "npm.cmd" : "npm", args, {
     cwd,
     stdio: "inherit",
     shell: isWin,
@@ -7721,7 +7785,7 @@ function installChromium(log = console.log) {
   const cli = join2(root, "node_modules", "playwright", "cli.js");
   log("Downloading the Chromium browser\u2026");
   if (existsSync3(cli)) {
-    execFileSync2(process.execPath, [cli, "install", "chromium"], { cwd: root, stdio: "inherit" });
+    execFileSync3(process.execPath, [cli, "install", "chromium"], { cwd: root, stdio: "inherit" });
   } else {
     npm(["exec", "--", "playwright", "install", "chromium"], root);
   }
@@ -8368,8 +8432,8 @@ var MockProvider = class {
 };
 
 // src/tts/os.ts
-import { execFileSync as execFileSync3 } from "child_process";
-import { mkdtempSync, readFileSync as readFileSync4, rmSync, writeFileSync as writeFileSync3 } from "fs";
+import { execFileSync as execFileSync4 } from "child_process";
+import { mkdtempSync, readFileSync as readFileSync5, rmSync, writeFileSync as writeFileSync3 } from "fs";
 import { tmpdir } from "os";
 import { join as join4 } from "path";
 var OsTtsProvider = class {
@@ -8398,7 +8462,7 @@ var OsTtsProvider = class {
   }
 };
 function run(cmd, args) {
-  execFileSync3(cmd, args, { stdio: "ignore" });
+  execFileSync4(cmd, args, { stdio: "ignore" });
 }
 function scratch() {
   const dir = mkdtempSync(join4(tmpdir(), "narrate-os-"));
@@ -8440,7 +8504,7 @@ function windows(text, voice) {
     }
   }
   if (!ran) throw lastErr ?? new Error("no PowerShell found");
-  const audio = readFileSync4(wav);
+  const audio = readFileSync5(wav);
   s.clean();
   if (audio.length <= 44) throw new Error("PowerShell TTS produced an empty WAV");
   return { audio, ext: "wav" };
@@ -8452,7 +8516,7 @@ function macos(text, voice) {
   const args = ["-f", s.txt, "-o", aiff];
   if (voice) args.unshift("-v", voice);
   run("say", args);
-  const audio = readFileSync4(aiff);
+  const audio = readFileSync5(aiff);
   s.clean();
   return { audio, ext: "aiff" };
 }
@@ -8472,7 +8536,7 @@ function linux(text, voice) {
   const args = ["-w", wav, "-f", s.txt];
   if (voice) args.push("-v", voice);
   run(bin, args);
-  const audio = readFileSync4(wav);
+  const audio = readFileSync5(wav);
   s.clean();
   return { audio, ext: "wav" };
 }
@@ -8695,12 +8759,15 @@ program2.command("init").description(
 });
 program2.command("set-key").description(
   "Save an API key into your global settings (~/.narrate/settings.json) and switch to that provider."
-).argument("<provider>", "gemini | elevenlabs").argument("<key>", "the API key").option("-p, --project", "save to this project's .narrate/settings.local.json instead").action((provider, key, o) => {
-  if (provider !== "gemini" && provider !== "elevenlabs") {
-    throw new Error(`Unknown provider "${provider}" (expected gemini or elevenlabs).`);
+).argument("<provider>", "gemini | elevenlabs").argument("[key]", "the API key (omit to read it without exposing it, see --clipboard)").option("-p, --project", "save to this project's .narrate/settings.local.json instead").option("--clipboard", "read the key from the clipboard").action(
+  async (provider, key, o) => {
+    if (provider !== "gemini" && provider !== "elevenlabs") {
+      throw new Error(`Unknown provider "${provider}" (expected gemini or elevenlabs).`);
+    }
+    const k = key ?? await readSecret({ clipboard: o.clipboard, label: `${provider} API key` });
+    setKey(process.cwd(), provider, k, (m) => console.log(m), o.project ? "project" : "global");
   }
-  setKey(process.cwd(), provider, key, (m) => console.log(m), o.project ? "project" : "global");
-});
+);
 program2.command("auth").description(
   "Open a browser to log in once; saves the session so authenticated scenes start signed in."
 ).argument("<url>", "the login URL to open").option("-o, --out <file>", "where to save the session", ".narrate/auth.json").action(async (url, o) => {

@@ -47,7 +47,7 @@ end-to-end (no project, dev server, or website of your own needed) and writes
 
 ```bash
 node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" init                  # scaffold .narrate/settings.local.json
-node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" set-key gemini AIza…  # save a key + pick the provider
+node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" set-key gemini        # save a key (hidden prompt; or --clipboard) + pick the provider
 node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" check                 # validate ffmpeg + config + key (exit 0/1)
 node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" render --scene scene.json
 # or in the source monorepo:

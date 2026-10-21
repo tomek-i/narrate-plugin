@@ -35,10 +35,18 @@ node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" <command> …
    - **ElevenLabs** — key from https://elevenlabs.io (dashboard → API key)
    - (Or keep the **OS voice** / use `mock` for silent — no key needed; nothing to do.)
 
-3. **Save it.** Write the key and switch the active provider in one step:
+3. **Save it — without the key ever entering the chat.** Never ask the user to
+   paste the key into the conversation, and never put it on a command line you
+   run (both land in the transcript). Instead, tell them to **copy the key**, then
+   run this themselves with the `!` prefix, giving them the command with the
+   plugin path filled in:
    ```bash
-   node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" set-key <gemini|elevenlabs> <key>
+   ! node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" set-key <gemini|elevenlabs> --clipboard
    ```
+   It reads the key from the clipboard and only prints it masked (`sk_…d286`).
+   In a regular terminal, omitting both the key and `--clipboard` prompts for it
+   with hidden input; it can also be piped on stdin. If the user already pasted
+   a key into the chat, suggest rotating it.
    This writes the key into that provider's block (`tts.gemini.key` /
    `tts.elevenlabs.key`) and sets `tts.provider` in the **global**
    `~/.narrate/settings.json`. Only if the user explicitly wants this setting for

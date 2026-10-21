@@ -10,6 +10,7 @@ import {
   settingsPath,
 } from "./config.js";
 import { ensureFfmpeg } from "./mux/ffmpeg.js";
+import { maskKey } from "./secret.js";
 import type { Config } from "./types.js";
 
 /**
@@ -127,7 +128,9 @@ export function setKey(
   raw.tts = tts;
 
   writeSettings(cwd, scope, path, raw);
-  log(`set tts.${provider}.key and tts.provider="${provider}" in ${path}`);
+  log(
+    `set tts.${provider}.key (${maskKey(block.key as string)}) and tts.provider="${provider}" in ${path}`,
+  );
   return path;
 }
 

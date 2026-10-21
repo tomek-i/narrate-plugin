@@ -113,10 +113,15 @@ global `~/.narrate/settings.json` (outside any repo), or in a project's gitignor
 to set one:
 
 ```bash
-narrate set-key gemini AIza…              # global: writes tts.gemini.key and switches the provider
-narrate set-key elevenlabs sk_…           # global: writes tts.elevenlabs.key and switches the provider
-narrate set-key elevenlabs sk_… --project # only for this project (e.g. a different account)
+narrate set-key elevenlabs                  # prompts for the key (hidden input), writes tts.elevenlabs.key, switches the provider
+narrate set-key gemini --clipboard          # reads the key from the clipboard instead
+narrate set-key elevenlabs --project        # only for this project (e.g. a different account)
+echo "$KEY" | narrate set-key elevenlabs    # or pipe it on stdin
 ```
+
+Passing the key as an argument (`narrate set-key gemini AIza…`) still works, but it
+ends up in your shell history. In Claude Code, copy the key and run
+`! narrate set-key <provider> --clipboard` so it never reaches the chat transcript.
 
 | Provider     | Settings block   | Notes                                          |
 | ------------ | ---------------- | ---------------------------------------------- |

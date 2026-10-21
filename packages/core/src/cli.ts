@@ -4,6 +4,7 @@ import { captureAuth } from "./auth.js";
 import { loadConfig, loadConfigLayers, loadScene } from "./config.js";
 import { render } from "./pipeline.js";
 import { checkEnv, initProject, setKey, setVoice } from "./project.js";
+import { readSecret } from "./secret.js";
 import { packageVersion, setup } from "./setup.js";
 import { listVoices } from "./tts/voices.js";
 
@@ -60,14 +61,22 @@ program
     "Save an API key into your global settings (~/.narrate/settings.json) and switch to that provider.",
   )
   .argument("<provider>", "gemini | elevenlabs")
-  .argument("<key>", "the API key")
+  .argument("[key]", "the API key (omit to read it without exposing it, see --clipboard)")
   .option("-p, --project", "save to this project's .narrate/settings.local.json instead")
-  .action((provider: string, key: string, o: { project?: boolean }) => {
-    if (provider !== "gemini" && provider !== "elevenlabs") {
-      throw new Error(`Unknown provider "${provider}" (expected gemini or elevenlabs).`);
-    }
-    setKey(process.cwd(), provider, key, (m) => console.log(m), o.project ? "project" : "global");
-  });
+  .option("--clipboard", "read the key from the clipboard")
+  .action(
+    async (
+      provider: string,
+      key: string | undefined,
+      o: { project?: boolean; clipboard?: boolean },
+    ) => {
+      if (provider !== "gemini" && provider !== "elevenlabs") {
+        throw new Error(`Unknown provider "${provider}" (expected gemini or elevenlabs).`);
+      }
+      const k = key ?? (await readSecret({ clipboard: o.clipboard, label: `${provider} API key` }));
+      setKey(process.cwd(), provider, k, (m) => console.log(m), o.project ? "project" : "global");
+    },
+  );
 
 program
   .command("auth")
