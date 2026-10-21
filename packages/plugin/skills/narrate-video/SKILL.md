@@ -271,7 +271,7 @@ Two roles — keep them separate so it doesn't look random:
   block with per-provider settings nested under their own key (`tts.gemini`,
   `tts.elevenlabs` — each with its own `voice`/`model`/`key`); default is the OS
   voice (no key). Override per-run with `--provider` / `--voice`. To switch to a
-  cloud voice, run **`/narrate-setup`** (or `narrate set-key <provider> <key>`).
+  cloud voice, run **`/narrate-setup`** (or have the user run `! narrate set-key <provider> --clipboard` after copying the key, never pasting it into chat).
   Two optional `output` flags add sidecar files next to the video: `"vtt": true`
   writes a `<name>.vtt` caption track (one cue per beat, timed to the narration),
   and `"keepScene": true` keeps a `<name>.scene.json` copy for later re-renders.

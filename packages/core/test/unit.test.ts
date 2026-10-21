@@ -12,6 +12,7 @@ import {
   settingOrigin,
 } from "../src/config.js";
 import { interpolateEnv } from "../src/env.js";
+import { maskKey } from "../src/secret.js";
 import { MockProvider } from "../src/tts/mock.js";
 import { OsTtsProvider } from "../src/tts/os.js";
 import { ConfigSchema, SceneSchema } from "../src/types.js";
@@ -191,4 +192,9 @@ test("a missing key reports not-configured and resolveApiKey throws", () => {
   });
   assert.equal(hasApiKey(cfg), false);
   assert.throws(() => resolveApiKey(cfg), /Missing API key/);
+});
+
+test("maskKey shows only the prefix and last four characters", () => {
+  assert.equal(maskKey("sk_aaaaaaaaaaaaaaaaaaaad286"), "sk_…d286");
+  assert.equal(maskKey("short"), "…");
 });
