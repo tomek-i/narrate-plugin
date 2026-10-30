@@ -92,6 +92,31 @@ test("ConfigSchema defaults to the keyless OS voice with nested provider blocks"
   assert.equal(cfg.output.format, "mp4");
 });
 
+test("ConfigSchema fills nested TTS defaults without replacing explicit settings", () => {
+  const defaults = {
+    provider: "os",
+    gemini: { voice: "Kore", model: "gemini-2.5-flash-preview-tts" },
+    elevenlabs: { voice: "bIHbv24MWmeRgasZH58o", model: "eleven_multilingual_v2" },
+  };
+  for (const input of [{}, { tts: {} }, { tts: { gemini: {}, elevenlabs: {} } }]) {
+    assert.deepEqual(ConfigSchema.parse(input).tts, defaults);
+  }
+  assert.deepEqual(
+    ConfigSchema.parse({
+      tts: {
+        provider: "elevenlabs",
+        gemini: { voice: "Puck" },
+        elevenlabs: { model: "custom-model" },
+      },
+    }).tts,
+    {
+      provider: "elevenlabs",
+      gemini: { ...defaults.gemini, voice: "Puck" },
+      elevenlabs: { ...defaults.elevenlabs, model: "custom-model" },
+    },
+  );
+});
+
 test("interpolateEnv substitutes set vars, escapes $${}, and throws on missing", () => {
   const env = { USER_NAME: "ada", PASS: "s3cret" };
   assert.equal(interpolateEnv("${USER_NAME} / ${PASS}", env), "ada / s3cret");
