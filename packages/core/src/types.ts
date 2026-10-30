@@ -160,7 +160,7 @@ export const ConfigSchema = z.object({
           /** Env var to read the key from if `key` is empty (CI fallback). */
           apiKeyEnv: z.string().optional(),
         })
-        .default({}),
+        .prefault({}),
       elevenlabs: z
         .object({
           key: z.string().optional(),
@@ -172,9 +172,9 @@ export const ConfigSchema = z.object({
           /** Env var to read the key from if `key` is empty (CI fallback). */
           apiKeyEnv: z.string().optional(),
         })
-        .default({}),
+        .prefault({}),
     })
-    .default({ provider: "os" }),
+    .prefault({ provider: "os" }),
   output: z
     .object({
       dir: z.string().default("out"),
