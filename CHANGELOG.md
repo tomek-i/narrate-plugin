@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.23.0](https://github.com/tomek-i/narrate-plugin/compare/v0.22.0...v0.23.0) (2026-10-30)
+
+
+### Features
+
+* set API keys without exposing them on the command line ([#24](https://github.com/tomek-i/narrate-plugin/issues/24)) ([c547d3d](https://github.com/tomek-i/narrate-plugin/commit/c547d3dff6ce74c66225a5739648cc65e28b8109))
+
 ## [0.22.0](https://github.com/tomek-i/narrate-plugin/compare/v0.21.0...v0.22.0) (2026-10-21)
 
 
