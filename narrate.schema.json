@@ -1,164 +1,159 @@
 {
-  "$ref": "#/definitions/Config",
-  "definitions": {
-    "Config": {
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "tts": {
+      "default": {
+        "provider": "os"
+      },
       "type": "object",
       "properties": {
-        "tts": {
-          "type": "object",
-          "properties": {
-            "provider": {
-              "type": "string",
-              "enum": [
-                "gemini",
-                "elevenlabs",
-                "os",
-                "mock"
-              ],
-              "default": "os"
-            },
-            "gemini": {
-              "type": "object",
-              "properties": {
-                "key": {
-                  "type": "string"
-                },
-                "voice": {
-                  "type": "string",
-                  "default": "Kore"
-                },
-                "model": {
-                  "type": "string",
-                  "default": "gemini-2.5-flash-preview-tts"
-                },
-                "apiKeyEnv": {
-                  "type": "string"
-                }
-              },
-              "additionalProperties": false,
-              "default": {}
-            },
-            "elevenlabs": {
-              "type": "object",
-              "properties": {
-                "key": {
-                  "type": "string"
-                },
-                "voice": {
-                  "type": "string",
-                  "default": "bIHbv24MWmeRgasZH58o"
-                },
-                "model": {
-                  "type": "string",
-                  "default": "eleven_multilingual_v2"
-                },
-                "apiKeyEnv": {
-                  "type": "string"
-                }
-              },
-              "additionalProperties": false,
-              "default": {}
-            }
-          },
-          "additionalProperties": false,
-          "default": {
-            "provider": "os"
-          }
+        "provider": {
+          "default": "os",
+          "type": "string",
+          "enum": [
+            "gemini",
+            "elevenlabs",
+            "os",
+            "mock"
+          ]
         },
-        "output": {
+        "gemini": {
+          "default": {},
           "type": "object",
           "properties": {
-            "dir": {
-              "type": "string",
-              "default": "out"
+            "key": {
+              "type": "string"
             },
-            "width": {
-              "type": "number",
-              "default": 1440
+            "voice": {
+              "default": "Kore",
+              "type": "string"
             },
-            "height": {
-              "type": "number",
-              "default": 900
+            "model": {
+              "default": "gemini-2.5-flash-preview-tts",
+              "type": "string"
             },
-            "fps": {
-              "type": "number",
-              "default": 25
-            },
-            "format": {
-              "type": "string",
-              "enum": [
-                "mp4",
-                "webm"
-              ],
-              "default": "mp4"
-            },
-            "crf": {
-              "type": "number",
-              "default": 16
-            },
-            "vtt": {
-              "type": "boolean",
-              "default": false
-            },
-            "keepScene": {
-              "type": "boolean",
-              "default": false
+            "apiKeyEnv": {
+              "type": "string"
             }
           },
-          "additionalProperties": false,
-          "default": {
-            "dir": "out",
-            "width": 1440,
-            "height": 900,
-            "fps": 25,
-            "format": "mp4",
-            "crf": 16,
-            "vtt": false,
-            "keepScene": false
-          }
+          "additionalProperties": false
         },
-        "overlay": {
+        "elevenlabs": {
+          "default": {},
           "type": "object",
           "properties": {
-            "cursor": {
-              "type": "boolean",
-              "default": true
+            "key": {
+              "type": "string"
             },
-            "highlight": {
-              "type": "boolean",
-              "default": true
+            "voice": {
+              "default": "bIHbv24MWmeRgasZH58o",
+              "type": "string"
             },
-            "style": {
-              "type": "string",
-              "enum": [
-                "ring",
-                "glow",
-                "spotlight"
-              ],
-              "default": "ring"
+            "model": {
+              "default": "eleven_multilingual_v2",
+              "type": "string"
             },
-            "holdMs": {
-              "type": "number",
-              "minimum": 0,
-              "default": 3000
-            },
-            "color": {
-              "type": "string",
-              "default": "#6366f1"
+            "apiKeyEnv": {
+              "type": "string"
             }
           },
-          "additionalProperties": false,
-          "default": {
-            "cursor": true,
-            "highlight": true,
-            "style": "ring",
-            "holdMs": 3000,
-            "color": "#6366f1"
-          }
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "output": {
+      "default": {
+        "dir": "out",
+        "width": 1440,
+        "height": 900,
+        "fps": 25,
+        "format": "mp4",
+        "crf": 16,
+        "vtt": false,
+        "keepScene": false
+      },
+      "type": "object",
+      "properties": {
+        "dir": {
+          "default": "out",
+          "type": "string"
+        },
+        "width": {
+          "default": 1440,
+          "type": "number"
+        },
+        "height": {
+          "default": 900,
+          "type": "number"
+        },
+        "fps": {
+          "default": 25,
+          "type": "number"
+        },
+        "format": {
+          "default": "mp4",
+          "type": "string",
+          "enum": [
+            "mp4",
+            "webm"
+          ]
+        },
+        "crf": {
+          "default": 16,
+          "type": "number"
+        },
+        "vtt": {
+          "default": false,
+          "type": "boolean"
+        },
+        "keepScene": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "overlay": {
+      "default": {
+        "cursor": true,
+        "highlight": true,
+        "style": "ring",
+        "holdMs": 3000,
+        "color": "#6366f1"
+      },
+      "type": "object",
+      "properties": {
+        "cursor": {
+          "default": true,
+          "type": "boolean"
+        },
+        "highlight": {
+          "default": true,
+          "type": "boolean"
+        },
+        "style": {
+          "default": "ring",
+          "type": "string",
+          "enum": [
+            "ring",
+            "glow",
+            "spotlight"
+          ]
+        },
+        "holdMs": {
+          "default": 3000,
+          "type": "number",
+          "minimum": 0
+        },
+        "color": {
+          "default": "#6366f1",
+          "type": "string"
         }
       },
       "additionalProperties": false
     }
   },
-  "$schema": "http://json-schema.org/draft-07/schema#"
+  "additionalProperties": false
 }
