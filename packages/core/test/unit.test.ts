@@ -131,6 +131,12 @@ test("a nested provider key is used and beats the env fallback", () => {
   assert.equal(resolveApiKey(cfg), "file-key");
 });
 
+test("a partial tts block still gets every provider block's defaults", () => {
+  const cfg = ConfigSchema.parse({ tts: { provider: "gemini" } });
+  assert.equal(cfg.tts.gemini.voice, "Kore");
+  assert.equal(cfg.tts.elevenlabs.voice, "bIHbv24MWmeRgasZH58o");
+});
+
 test("mergeSettings deep-merges objects and replaces scalars/arrays", () => {
   const merged = mergeSettings(
     { tts: { provider: "gemini", gemini: { key: "g", voice: "Kore" } }, list: [1, 2] },
