@@ -248,7 +248,8 @@ export const ConfigSchema = z.object({
        * idle, narrate logs a warning and carries on instead of failing.
        */
       waitUntil: WaitUntilSchema.default("networkidle"),
-      /** Max time for one page load (ms). */
+      /** Max time for one page load (ms), including the idle wait. Also the
+       *  timeout for `waitForUrl`, `back` and `forward`. */
       navigationTimeoutMs: z.number().positive().default(30000),
     })
     .default({ waitUntil: "networkidle", navigationTimeoutMs: 30000 }),

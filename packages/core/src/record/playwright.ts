@@ -185,10 +185,13 @@ const COLOR_SCHEME = {
 const idleWarning = (what: string, pl: PageLoad) =>
   `${what}: the network never went idle within ${pl.timeoutMs}ms (does the page poll?); continuing. Set record.waitUntil (or the scene's waitUntil) to "load" to skip this wait.`;
 
+const isTimeout = (err: unknown) => err instanceof Error && err.name === "TimeoutError";
+
 /**
- * Run a navigation and wait for it per `pl.waitUntil`. For `networkidle`, the
- * page must reach `load` (a hard failure if it doesn't), then idle is awaited as
- * a soft wait: apps that poll never go idle, and that shouldn't kill a render.
+ * Run a navigation and wait for it per `pl.waitUntil`, all within one
+ * `pl.timeoutMs` budget. For `networkidle`, the page must reach `load` (a hard
+ * failure if it doesn't), then idle is awaited for the rest of the budget as a
+ * soft wait: apps that poll never go idle, and that shouldn't kill a render.
  */
 async function loadPage(
   page: Page,
@@ -200,18 +203,25 @@ async function loadPage(
     await go(pl.waitUntil);
     return;
   }
+  const started = Date.now();
   await go("load");
-  await page
-    .waitForLoadState("networkidle", { timeout: pl.timeoutMs })
-    .catch(() => pl.warn(idleWarning(what, pl)));
+  const left = Math.max(1, pl.timeoutMs - (Date.now() - started));
+  await page.waitForLoadState("networkidle", { timeout: left }).catch((err) => {
+    if (!isTimeout(err)) throw err;
+    pl.warn(idleWarning(what, pl));
+  });
 }
 
 // Steps that may trigger a navigation (or none at all — SPAs), so this never fails.
 async function settle(page: Page, pl: PageLoad, what: string): Promise<void> {
-  await page.waitForLoadState(pl.waitUntil, { timeout: pl.timeoutMs }).catch(() => {
-    if (pl.waitUntil === "networkidle") pl.warn(idleWarning(what, pl));
+  await page.waitForLoadState(pl.waitUntil, { timeout: pl.timeoutMs }).catch((err) => {
+    if (pl.waitUntil === "networkidle" && isTimeout(err)) pl.warn(idleWarning(what, pl));
   });
 }
+
+/** `waitUntil` for history navigations: idle is awaited by `settle` afterwards. */
+const historyWait = (pl: PageLoad): WaitUntil =>
+  pl.waitUntil === "networkidle" ? "load" : pl.waitUntil;
 
 // --- overlay drivers (call the injected window.__narrate API) -----------------
 
@@ -279,11 +289,11 @@ async function runStep(page: Page, step: Step, fx: OverlayConfig, pl: PageLoad):
       );
       return;
     case "back":
-      await page.goBack().catch(() => {});
+      await page.goBack({ waitUntil: historyWait(pl) }).catch(() => {});
       await settle(page, pl, "back");
       return;
     case "forward":
-      await page.goForward().catch(() => {});
+      await page.goForward({ waitUntil: historyWait(pl) }).catch(() => {});
       await settle(page, pl, "forward");
       return;
     case "reload":

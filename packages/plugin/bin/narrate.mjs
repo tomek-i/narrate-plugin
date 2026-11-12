@@ -22988,7 +22988,8 @@ var ConfigSchema = external_exports.object({
      * idle, narrate logs a warning and carries on instead of failing.
      */
     waitUntil: WaitUntilSchema.default("networkidle"),
-    /** Max time for one page load (ms). */
+    /** Max time for one page load (ms), including the idle wait. Also the
+     *  timeout for `waitForUrl`, `back` and `forward`. */
     navigationTimeoutMs: external_exports.number().positive().default(3e4)
   }).default({ waitUntil: "networkidle", navigationTimeoutMs: 3e4 })
 });
@@ -23805,19 +23806,26 @@ var COLOR_SCHEME = {
   system: "no-preference"
 };
 var idleWarning = (what, pl) => `${what}: the network never went idle within ${pl.timeoutMs}ms (does the page poll?); continuing. Set record.waitUntil (or the scene's waitUntil) to "load" to skip this wait.`;
+var isTimeout = (err) => err instanceof Error && err.name === "TimeoutError";
 async function loadPage(page, go, pl, what) {
   if (pl.waitUntil !== "networkidle") {
     await go(pl.waitUntil);
     return;
   }
+  const started = Date.now();
   await go("load");
-  await page.waitForLoadState("networkidle", { timeout: pl.timeoutMs }).catch(() => pl.warn(idleWarning(what, pl)));
-}
-async function settle2(page, pl, what) {
-  await page.waitForLoadState(pl.waitUntil, { timeout: pl.timeoutMs }).catch(() => {
-    if (pl.waitUntil === "networkidle") pl.warn(idleWarning(what, pl));
+  const left = Math.max(1, pl.timeoutMs - (Date.now() - started));
+  await page.waitForLoadState("networkidle", { timeout: left }).catch((err) => {
+    if (!isTimeout(err)) throw err;
+    pl.warn(idleWarning(what, pl));
   });
 }
+async function settle2(page, pl, what) {
+  await page.waitForLoadState(pl.waitUntil, { timeout: pl.timeoutMs }).catch((err) => {
+    if (pl.waitUntil === "networkidle" && isTimeout(err)) pl.warn(idleWarning(what, pl));
+  });
+}
+var historyWait = (pl) => pl.waitUntil === "networkidle" ? "load" : pl.waitUntil;
 var POINT_MS = 450;
 async function pointTo(page, selector) {
   const moved = await page.evaluate(([sel, dur]) => Boolean(window.__narrate?.pointAt(sel, dur)), [
@@ -23863,12 +23871,12 @@ async function runStep(page, step, fx, pl) {
       );
       return;
     case "back":
-      await page.goBack().catch(() => {
+      await page.goBack({ waitUntil: historyWait(pl) }).catch(() => {
       });
       await settle2(page, pl, "back");
       return;
     case "forward":
-      await page.goForward().catch(() => {
+      await page.goForward({ waitUntil: historyWait(pl) }).catch(() => {
       });
       await settle2(page, pl, "forward");
       return;

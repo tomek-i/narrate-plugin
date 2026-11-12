@@ -31,7 +31,8 @@ describe("page-load wait", { skip }, () => {
         warnings.push(m),
       );
       const started = Date.now();
-      const result = await recorder.record(SceneSchema.parse(scene), { a: 0.5 });
+      // A generous beat, so a slow machine doesn't add an "overran" warning.
+      const result = await recorder.record(SceneSchema.parse(scene), { a: 3 });
       return { result, warnings, ms: Date.now() - started };
     } finally {
       out.cleanup();
@@ -48,9 +49,12 @@ describe("page-load wait", { skip }, () => {
       {},
     );
     assert.ok(result.videoPath);
-    assert.deepEqual(warnings, []);
+    assert.deepEqual(
+      warnings.filter((w) => /never went idle/.test(w)),
+      [],
+    );
     assert.ok(app.hits.includes("/poll"), "the page should have polled");
-    assert.ok(ms < 15000, `took ${ms}ms`);
+    assert.ok(ms < 20000, `took ${ms}ms`);
   });
 
   test("the default (networkidle) still renders, with a warning instead of a failure", async () => {
@@ -59,8 +63,25 @@ describe("page-load wait", { skip }, () => {
       { record: { navigationTimeoutMs: 1500 } },
     );
     assert.ok(result.videoPath);
-    assert.equal(warnings.filter((w) => /never went idle/.test(w)).length, 2, warnings.join("\n"));
-    assert.match(warnings[0], /Opening the site/);
-    assert.match(warnings[1], /reload/);
+    const idle = warnings.filter((w) => /never went idle/.test(w));
+    assert.equal(idle.length, 2, warnings.join("\n"));
+    assert.match(idle[0], /Opening the site/);
+    assert.match(idle[1], /reload/);
+  });
+
+  test('config record.waitUntil "load" works, and a scene can override it', async () => {
+    const viaConfig = await record(
+      { site: app.url, beats: [{ id: "a", say: "x", do: [{ action: "reload" }] }] },
+      { record: { waitUntil: "load", navigationTimeoutMs: 1500 } },
+    );
+    assert.deepEqual(
+      viaConfig.warnings.filter((w) => /never went idle/.test(w)),
+      [],
+    );
+    const overridden = await record(
+      { site: app.url, waitUntil: "networkidle", beats: [{ id: "a", say: "x" }] },
+      { record: { waitUntil: "load", navigationTimeoutMs: 1500 } },
+    );
+    assert.equal(overridden.warnings.filter((w) => /never went idle/.test(w)).length, 1);
   });
 });

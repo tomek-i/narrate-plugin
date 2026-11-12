@@ -62,7 +62,7 @@ skill). The full shape (valid in either file):
   },
   "record": {
     "waitUntil": "networkidle",                // when a page load is done: load | domcontentloaded | networkidle
-    "navigationTimeoutMs": 30000               // max time for one page load
+    "navigationTimeoutMs": 30000               // max time for one page load (also waitForUrl/back/forward)
   }
 }
 ```

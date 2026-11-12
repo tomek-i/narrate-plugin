@@ -287,7 +287,8 @@ Two roles — keep them separate so it doesn't look random:
   `networkidle` by default. Apps that poll (dashboards, dev servers with HMR,
   analytics) never go idle: the render still works but logs a "never went idle"
   warning and loses up to `record.navigationTimeoutMs` (30s) per load. If you see
-  that warning, or the app polls, set `"waitUntil": "load"` on the scene.
+  that warning, or the app polls, set `"waitUntil": "load"` on the scene (or
+  `record.waitUntil` in the settings for every scene).
 - **Theme:** the optional scene-level `theme` emulates the browser's
   `prefers-color-scheme` (the standard OS/browser color-scheme signal), so it
   works for any site that honors that media query. Apps with a *manual* toggle
