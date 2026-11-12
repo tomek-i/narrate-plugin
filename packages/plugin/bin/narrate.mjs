@@ -8138,7 +8138,7 @@ var recursive = /* @__PURE__ */ new WeakMap();
 var NONE = 0;
 var ASSUMED = 1;
 var PROVEN = 2;
-function isRecursive(inst, stack, resolve4) {
+function isRecursive(inst, stack, resolve5) {
   const cached2 = recursive.get(inst);
   if (cached2 !== void 0)
     return cached2 ? PROVEN : NONE;
@@ -8148,7 +8148,7 @@ function isRecursive(inst, stack, resolve4) {
   let result = NONE;
   const check2 = (child) => {
     if (result !== PROVEN && child?._zod) {
-      const answer = isRecursive(child, stack, resolve4);
+      const answer = isRecursive(child, stack, resolve5);
       if (answer > result)
         result = answer;
     }
@@ -8159,7 +8159,7 @@ function isRecursive(inst, stack, resolve4) {
       const desc = Object.getOwnPropertyDescriptor(sh, key);
       if (spread && !desc.enumerable)
         continue;
-      const child = desc.get ? ASSUMED : desc.value?._zod ? isRecursive(desc.value, stack, resolve4) : NONE;
+      const child = desc.get ? ASSUMED : desc.value?._zod ? isRecursive(desc.value, stack, resolve5) : NONE;
       if (child > answer)
         answer = child;
     }
@@ -8223,7 +8223,7 @@ function isRecursive(inst, stack, resolve4) {
       break;
     // `$ZodLazy` caches its inner on the def, so a resolved edge is followed exactly
     case "lazy": {
-      const inner = def._cachedInner ?? (resolve4 ? inst._zod.innerType : void 0);
+      const inner = def._cachedInner ?? (resolve5 ? inst._zod.innerType : void 0);
       merge2(inner ? isRecursive(inner, stack, false) : ASSUMED);
       break;
     }
@@ -22897,6 +22897,7 @@ var AuthSchema = external_exports.object({
   storageState: external_exports.string()
 });
 var WaitUntilSchema = external_exports.enum(["load", "domcontentloaded", "networkidle"]);
+var SCENE_SCHEMA_VERSION = 1;
 var SceneSchema = external_exports.object({
   name: external_exports.string().default("scene"),
   site: external_exports.string(),
@@ -23090,11 +23091,24 @@ function settingOrigin(layers, keyPath) {
 function loadScene(cwd, scenePath) {
   const p = resolve(cwd, scenePath);
   if (!existsSync(p)) throw new Error(`Scene file not found: ${p}`);
-  const scene = SceneSchema.parse(JSON.parse(readFileSync(p, "utf8")));
+  const parsed = SceneSchema.safeParse(JSON.parse(readFileSync(p, "utf8")));
+  if (!parsed.success) {
+    const lines = parsed.error.issues.map((i) => `  ${formatPath(i.path)}: ${i.message}`);
+    throw new Error(`Invalid scene ${p}:
+${lines.join("\n")}`);
+  }
+  return resolveSceneSite(parsed.data, p);
+}
+function resolveSceneSite(scene, sceneFile) {
   if (!/^(https?|file):\/\//i.test(scene.site)) {
-    scene.site = pathToFileURL(resolve(dirname(p), scene.site)).href;
+    scene.site = pathToFileURL(resolve(dirname(sceneFile), scene.site)).href;
   }
   return scene;
+}
+function formatPath(path) {
+  return path.map(
+    (part, i) => typeof part === "number" ? `[${part}]` : i === 0 ? String(part) : `.${String(part)}`
+  ).join("");
 }
 function providerSettings(config2) {
   const p = config2.tts.provider;
@@ -23316,7 +23330,7 @@ function readClipboard() {
   throw new Error("Couldn't read the clipboard (on Linux install wl-paste, xclip or xsel).");
 }
 function promptHidden(question) {
-  return new Promise((resolve4) => {
+  return new Promise((resolve5) => {
     const rl = createInterface({ input: process.stdin, output: process.stdout, terminal: true });
     const out = rl;
     let prompted = false;
@@ -23329,7 +23343,7 @@ function promptHidden(question) {
     rl.question(question, (answer) => {
       rl.close();
       process.stdout.write("\n");
-      resolve4(answer);
+      resolve5(answer);
     });
   });
 }
@@ -24291,8 +24305,8 @@ async function captureAuth(opts) {
 }
 
 // src/pipeline.ts
-import { copyFileSync, existsSync as existsSync4, mkdirSync as mkdirSync3, rmSync as rmSync3, writeFileSync as writeFileSync4 } from "fs";
-import { join as join5, resolve as resolve3 } from "path";
+import { copyFileSync, existsSync as existsSync5, mkdirSync as mkdirSync3, rmSync as rmSync3, writeFileSync as writeFileSync4 } from "fs";
+import { join as join5, resolve as resolve4 } from "path";
 import { pathToFileURL as pathToFileURL2 } from "url";
 
 // src/tts/elevenlabs.ts
@@ -24541,6 +24555,8 @@ function makeProvider(config2, settingsFiles) {
 }
 
 // src/validate.ts
+import { existsSync as existsSync4, readFileSync as readFileSync6 } from "fs";
+import { resolve as resolve3 } from "path";
 function safeOrigin(url2) {
   try {
     return originOf(url2);
@@ -24606,6 +24622,49 @@ function untrustedProblems(scene, opts = {}) {
   });
   return problems;
 }
+function schemaProblems(error62) {
+  return error62.issues.map((issue2) => ({
+    path: formatPath(issue2.path),
+    message: issue2.message
+  }));
+}
+function sceneProblems(scene, opts = {}) {
+  const problems = [];
+  const seen = /* @__PURE__ */ new Map();
+  scene.beats.forEach((beat, b) => {
+    const first = seen.get(beat.id);
+    if (first !== void 0) {
+      problems.push({
+        path: `beats[${b}].id`,
+        message: `duplicate beat id "${beat.id}" (also beats[${first}]); beat ids must be unique`
+      });
+    } else {
+      seen.set(beat.id, b);
+    }
+  });
+  if (opts.untrusted || scene.untrusted) problems.push(...untrustedProblems(scene, opts));
+  return problems;
+}
+function validateSceneFile(cwd, file2, opts = {}) {
+  const result = (problems) => ({
+    ok: problems.length === 0,
+    schemaVersion: SCENE_SCHEMA_VERSION,
+    problems
+  });
+  const p = resolve3(cwd, file2);
+  if (!existsSync4(p)) return result([{ path: "", message: `scene file not found: ${p}` }]);
+  let raw;
+  try {
+    raw = JSON.parse(readFileSync6(p, "utf8"));
+  } catch (err) {
+    return result([
+      { path: "", message: `not valid JSON: ${err instanceof Error ? err.message : err}` }
+    ]);
+  }
+  const parsed = SceneSchema.safeParse(raw);
+  if (!parsed.success) return result(schemaProblems(parsed.error));
+  return result(sceneProblems(resolveSceneSite(parsed.data, p), opts));
+}
 function formatProblems(problems) {
   return problems.map((p) => `  ${p.path}: ${p.message}`).join("\n");
 }
@@ -24635,7 +24694,7 @@ function buildVtt(beats, durations, leadInSec = 0) {
 // src/pipeline.ts
 function resolveSite(site, cwd) {
   if (/^(https?|file):\/\//i.test(site)) return site;
-  return pathToFileURL2(resolve3(cwd, site)).href;
+  return pathToFileURL2(resolve4(cwd, site)).href;
 }
 async function render(scene, config2, opts) {
   const logLines = [];
@@ -24647,15 +24706,17 @@ async function render(scene, config2, opts) {
     `narrate render \u2014 scene "${scene.name}", provider "${config2.tts.provider}", platform ${process.platform}`
   );
   const untrusted = Boolean(opts.untrusted || scene.untrusted);
-  if (untrusted) {
-    const problems = untrustedProblems(
-      { ...scene, site: resolveSite(scene.site, opts.cwd) },
-      { allowedOrigins: opts.allowedOrigins }
+  const problems = sceneProblems(
+    { ...scene, site: resolveSite(scene.site, opts.cwd) },
+    { untrusted, allowedOrigins: opts.allowedOrigins }
+  );
+  if (problems.length) {
+    throw new Error(
+      `Scene rejected${untrusted ? " (untrusted mode)" : ""}:
+${formatProblems(problems)}`
     );
-    if (problems.length) {
-      throw new Error(`Scene rejected (untrusted mode):
-${formatProblems(problems)}`);
-    }
+  }
+  if (untrusted) {
     log("Untrusted mode: on (no eval/uploadFile/off-site navigate, ${NAME} typed literally)");
   }
   const expandEnv = !untrusted && opts.expandEnv !== false;
@@ -24665,7 +24726,7 @@ ${formatProblems(problems)}`);
     installPlaywrightPackage(log);
     installChromium(log);
   }
-  const outDir = resolve3(opts.cwd, config2.output.dir);
+  const outDir = resolve4(opts.cwd, config2.output.dir);
   const audioDir = join5(outDir, "audio");
   mkdirSync3(audioDir, { recursive: true });
   const provider = makeProvider(config2, opts.settingsFiles ?? settingsFilesChecked(opts.cwd));
@@ -24696,8 +24757,8 @@ ${formatProblems(problems)}`);
   const statePathIn = opts.storageState ?? (untrusted ? void 0 : scene.auth?.storageState);
   let auth = statePathIn ? { storageState: statePathIn } : void 0;
   if (auth?.storageState) {
-    const statePath = resolve3(opts.cwd, auth.storageState);
-    if (!existsSync4(statePath)) {
+    const statePath = resolve4(opts.cwd, auth.storageState);
+    if (!existsSync5(statePath)) {
       throw new Error(
         `Auth storage state not found: ${statePath}. Capture it once with \`narrate auth <login-url> --out ${auth.storageState}\` (a browser opens; log in, then close it), then re-run. (The file holds session tokens \u2014 keep it gitignored.)`
       );
@@ -24755,7 +24816,7 @@ ${mux.stderr.trim().split("\n").slice(-12).join("\n")}`);
     log(`Captions: ${vttPath}`);
   }
   if (config2.output.keepScene && opts.scenePath) {
-    const src = resolve3(opts.cwd, opts.scenePath);
+    const src = resolve4(opts.cwd, opts.scenePath);
     const dest = join5(outDir, `${scene.name}.scene.json`);
     if (src === dest) {
       log(`Scene retained: ${dest} (already in out dir)`);
@@ -24863,6 +24924,23 @@ program2.command("render").description("TTS \u2192 record \u2192 mux into one na
   });
   console.log(`
 \u2705 Done \u2192 ${out}`);
+});
+program2.command("validate").description(
+  "Check a scene against the schema and render's own checks, without a browser, ffmpeg, TTS or network. Exits 1 if invalid."
+).requiredOption("-s, --scene <file>", "scene JSON file").option("--untrusted", "also apply the --untrusted rules (as render --untrusted would)").option("--allow-origin <url...>", "origins the caller allows, as with render --allow-origin").option("--json", "print one JSON object: { ok, schemaVersion, problems: [{ path, message }] }").action((o) => {
+  const result = validateSceneFile(process.cwd(), o.scene, {
+    untrusted: o.untrusted,
+    allowedOrigins: o.allowOrigin
+  });
+  if (o.json) {
+    console.log(JSON.stringify(result));
+  } else if (result.ok) {
+    console.log(`\u2705 Scene OK: ${o.scene} (schema version ${result.schemaVersion})`);
+  } else {
+    console.log(`\u274C Invalid scene: ${o.scene}
+${formatProblems(result.problems)}`);
+  }
+  if (!result.ok) process.exitCode = 1;
 });
 program2.command("init").description(
   "Scaffold .narrate/settings.local.json (project overrides) in the current project, or ~/.narrate/settings.json with --global."

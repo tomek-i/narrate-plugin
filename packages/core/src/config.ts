@@ -128,13 +128,32 @@ export function settingOrigin(
 export function loadScene(cwd: string, scenePath: string): Scene {
   const p = resolve(cwd, scenePath);
   if (!existsSync(p)) throw new Error(`Scene file not found: ${p}`);
-  const scene = SceneSchema.parse(JSON.parse(readFileSync(p, "utf8")));
-  // A `site` that isn't a URL is a local file path, resolved relative to the
-  // scene file so example/demo scenes stay portable wherever the repo lives.
+  const parsed = SceneSchema.safeParse(JSON.parse(readFileSync(p, "utf8")));
+  if (!parsed.success) {
+    const lines = parsed.error.issues.map((i) => `  ${formatPath(i.path)}: ${i.message}`);
+    throw new Error(`Invalid scene ${p}:\n${lines.join("\n")}`);
+  }
+  return resolveSceneSite(parsed.data, p);
+}
+
+/**
+ * A `site` that isn't a URL is a local file path, resolved relative to the
+ * scene file so example/demo scenes stay portable wherever the repo lives.
+ */
+export function resolveSceneSite(scene: Scene, sceneFile: string): Scene {
   if (!/^(https?|file):\/\//i.test(scene.site)) {
-    scene.site = pathToFileURL(resolve(dirname(p), scene.site)).href;
+    scene.site = pathToFileURL(resolve(dirname(sceneFile), scene.site)).href;
   }
   return scene;
+}
+
+/** A zod issue path as a JSON path: `["beats", 2, "do", 0, "ms"]` → `beats[2].do[0].ms`. */
+export function formatPath(path: readonly PropertyKey[]): string {
+  return path
+    .map((part, i) =>
+      typeof part === "number" ? `[${part}]` : i === 0 ? String(part) : `.${String(part)}`,
+    )
+    .join("");
 }
 
 /** Providers whose settings (incl. key) live in the config file. */

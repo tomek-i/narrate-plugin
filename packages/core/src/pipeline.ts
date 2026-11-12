@@ -16,7 +16,7 @@ import { PlaywrightRecorder } from "./record/playwright.js";
 import { hasPlaywright, installChromium, installPlaywrightPackage } from "./setup.js";
 import { makeProvider } from "./tts/index.js";
 import type { Config, Durations, Scene } from "./types.js";
-import { formatProblems, untrustedProblems } from "./validate.js";
+import { formatProblems, sceneProblems } from "./validate.js";
 import { buildVtt } from "./vtt.js";
 
 export interface RenderOptions {
@@ -66,16 +66,19 @@ export async function render(scene: Scene, config: Config, opts: RenderOptions):
     `narrate render — scene "${scene.name}", provider "${config.tts.provider}", platform ${process.platform}`,
   );
 
-  // Safe mode: reject dangerous steps before spending anything on TTS or recording.
+  // Check the scene (and, in safe mode, reject dangerous steps) before spending
+  // anything on TTS or recording.
   const untrusted = Boolean(opts.untrusted || scene.untrusted);
-  if (untrusted) {
-    const problems = untrustedProblems(
-      { ...scene, site: resolveSite(scene.site, opts.cwd) },
-      { allowedOrigins: opts.allowedOrigins },
+  const problems = sceneProblems(
+    { ...scene, site: resolveSite(scene.site, opts.cwd) },
+    { untrusted, allowedOrigins: opts.allowedOrigins },
+  );
+  if (problems.length) {
+    throw new Error(
+      `Scene rejected${untrusted ? " (untrusted mode)" : ""}:\n${formatProblems(problems)}`,
     );
-    if (problems.length) {
-      throw new Error(`Scene rejected (untrusted mode):\n${formatProblems(problems)}`);
-    }
+  }
+  if (untrusted) {
     log("Untrusted mode: on (no eval/uploadFile/off-site navigate, ${NAME} typed literally)");
   }
   const expandEnv = !untrusted && opts.expandEnv !== false;

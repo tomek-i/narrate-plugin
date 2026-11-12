@@ -78,6 +78,34 @@ Flags (`render`):
 | `--storage-state <f>` | load this saved session; overrides the scene's `auth.storageState` |
 | `--same-origin`     | keep the browser on the site's origin; fail without a video if it leaves ([scenes.md](./scenes.md#same-origin-guard)) |
 
+### Validating a scene without rendering
+
+```bash
+narrate validate --scene scene.json            # exit 0 = valid, 1 = invalid (one line per problem)
+narrate validate --scene scene.json --json     # machine-readable
+narrate validate --scene scene.json --untrusted  # also apply the --untrusted rules (add --allow-origin as for render)
+```
+
+`validate` runs the same checks `render` does before it starts (JSON syntax, the
+scene schema, unique beat ids, and the `--untrusted` rules when asked for or set
+in the scene), without a browser, ffmpeg, a TTS voice or any network access. Use
+it to check a generated scene before spending time and TTS credits on a render,
+or in a generator's tests to catch drift from narrate's schema.
+
+With `--json` it prints exactly one JSON object to stdout:
+
+```json
+{ "ok": false, "schemaVersion": 1, "problems": [{ "path": "beats[2].do[0].ms", "message": "Too small: expected number to be >0" }] }
+```
+
+- `ok`: true when there are no problems (and the exit code is 0).
+- `schemaVersion`: the scene format version. It only changes on incompatible
+  changes (a field removed or its meaning changed), not when optional fields are
+  added, so a caller can refuse to run against a version it doesn't know.
+- `problems`: one entry per problem. `path` is a JSON path into the scene (`""`
+  for the file as a whole, e.g. invalid JSON); `message` is human-readable and
+  may change between versions.
+
 Keyless smoke test (silent narration, exercises the whole pipeline):
 
 ```bash

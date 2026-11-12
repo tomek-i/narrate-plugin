@@ -7,6 +7,7 @@ import { checkEnv, initProject, setKey, setVoice } from "./project.js";
 import { readSecret } from "./secret.js";
 import { packageVersion, setup } from "./setup.js";
 import { listVoices } from "./tts/voices.js";
+import { formatProblems, validateSceneFile } from "./validate.js";
 
 const CONFIG_HELP =
   "project config file, layered over ~/.narrate/settings.json (default: .narrate/settings.local.json)";
@@ -81,6 +82,30 @@ program
       onLog: (m) => console.log(m),
     });
     console.log(`\n✅ Done → ${out}`);
+  });
+
+program
+  .command("validate")
+  .description(
+    "Check a scene against the schema and render's own checks, without a browser, ffmpeg, TTS or network. Exits 1 if invalid.",
+  )
+  .requiredOption("-s, --scene <file>", "scene JSON file")
+  .option("--untrusted", "also apply the --untrusted rules (as render --untrusted would)")
+  .option("--allow-origin <url...>", "origins the caller allows, as with render --allow-origin")
+  .option("--json", "print one JSON object: { ok, schemaVersion, problems: [{ path, message }] }")
+  .action((o: { scene: string; untrusted?: boolean; allowOrigin?: string[]; json?: boolean }) => {
+    const result = validateSceneFile(process.cwd(), o.scene, {
+      untrusted: o.untrusted,
+      allowedOrigins: o.allowOrigin,
+    });
+    if (o.json) {
+      console.log(JSON.stringify(result));
+    } else if (result.ok) {
+      console.log(`✅ Scene OK: ${o.scene} (schema version ${result.schemaVersion})`);
+    } else {
+      console.log(`❌ Invalid scene: ${o.scene}\n${formatProblems(result.problems)}`);
+    }
+    if (!result.ok) process.exitCode = 1;
   });
 
 program
