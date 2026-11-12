@@ -130,8 +130,10 @@ nothing is blocked.
 
 How it works, and what it costs: the browser doesn't expose a navigation's
 redirect hops, so narrate requests each hop of a navigation itself and refuses
-any hop to another origin. When a navigation redirects within the site, the
-page it ends on is requested twice (once to check it, once by the browser).
+any hop to another origin. When a navigation redirects within the allowed
+origins, the page it ends on is requested twice (once to check it, once by the
+browser); for a POST that is redirected with 307/308, that means the final POST
+is sent twice. Each hop only carries its own host's cookies.
 Service workers are disabled while the guard is on, because requests they
 answer can't be checked.
 

@@ -110,6 +110,12 @@ export class OriginGuard {
     let current = req.url();
     let method = req.method();
     let postData = req.postDataBuffer() ?? undefined;
+    let status = 0;
+    // Later hops must not carry the first request's cookies to another (allowed)
+    // origin; without a Cookie header, the context's cookie jar supplies each
+    // hop's own cookies.
+    const hopHeaders = { ...req.headers() };
+    delete hopHeaders.cookie;
     let response: Awaited<ReturnType<Route["fetch"]>>;
     try {
       response = await route.fetch({ maxRedirects: 0, timeout: this.timeoutMs });
@@ -123,24 +129,28 @@ export class OriginGuard {
           return;
         }
         if (hop > MAX_REDIRECTS) throw new Error(`more than ${MAX_REDIRECTS} redirects`);
+        status = response.status();
         // 307/308 repeat the request as is; the others turn it into a GET.
-        if (response.status() !== 307 && response.status() !== 308) {
+        if (status !== 307 && status !== 308) {
           method = "GET";
           postData = undefined;
+          delete hopHeaders["content-type"];
+          delete hopHeaders["content-length"];
         }
         current = target;
         response = await route.fetch({
           url: target,
           method,
+          headers: hopHeaders,
           postData,
           maxRedirects: 0,
           timeout: this.timeoutMs,
         });
       }
     } catch (err) {
-      this.warn(
-        `Same-origin guard: could not load ${current}: ${err instanceof Error ? err.message : err}`,
-      );
+      // First line only: Playwright's call log lists request headers, cookies included.
+      const reason = (err instanceof Error ? err.message : String(err)).split("\n")[0];
+      this.warn(`Same-origin guard: could not load ${current}: ${reason}`);
       await route.abort("failed");
       return;
     }
@@ -149,9 +159,11 @@ export class OriginGuard {
       return;
     }
     // The whole chain stays on allowed origins: send the browser straight to
-    // where it ends. (It loads that last page itself, so the page is requested
-    // twice; if it then redirects elsewhere, the page-URL checks still catch it.)
-    await route.fulfill({ status: 302, headers: { location: current } });
+    // where it ends, keeping the method if the chain did (307). The browser then
+    // requests that last page itself, so it is requested twice; if it redirects
+    // elsewhere the second time, the page-URL checks still catch it.
+    const keepMethod = method !== "GET" && (status === 307 || status === 308);
+    await route.fulfill({ status: keepMethod ? 307 : 302, headers: { location: current } });
   }
 
   private block(url: string, isMainNav: boolean): void {
@@ -165,18 +177,27 @@ export class OriginGuard {
     }
   }
 
+  /** The URL the page left for, if it tried to leave or is no longer on an allowed origin. */
+  private offSite(page: Page): string | null {
+    if (this.violation) return this.violation;
+    const current = page.url();
+    // A failed load (connection refused, DNS…) shows the browser's own error
+    // page; that's a network error for the step to report, not leaving the site.
+    if (current.startsWith("chrome-error:") || this.allows(current)) return null;
+    return current;
+  }
+
+  /** True once the page tried to leave, or is no longer on, an allowed origin. */
+  violated(page: Page): boolean {
+    return this.offSite(page) !== null;
+  }
+
   /**
    * Fail if the page left (or tried to leave) the allowed origins. `where` names
    * the step or beat for the error message.
    */
-  /** True once the page tried to leave, or is no longer on, an allowed origin. */
-  violated(page: Page): boolean {
-    return this.violation !== null || !this.allows(page.url());
-  }
-
   check(page: Page, where: string): void {
-    const current = page.url();
-    const blocked = this.violation ?? (this.allows(current) ? null : current);
+    const blocked = this.offSite(page);
     if (!blocked) return;
     throw new OriginGuardError(
       `Same-origin guard: ${where} tried to leave the allowed origins (${[...this.allowed].join(", ")}) for ${blocked}. ` +

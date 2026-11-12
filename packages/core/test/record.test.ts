@@ -95,9 +95,18 @@ describe("same-origin guard", { skip }, () => {
   let other: TestServer;
   const fileDir = tempDir("narrate-file-site-");
   const dashCookies: string[] = [];
+  const methods307: string[] = [];
+  const secondCookies: string[] = [];
+  let second: TestServer;
   after(() => fileDir.cleanup());
   before(async () => {
     other = await serve((_req, res) => html(res, "<h1>Another site</h1>"));
+    // A second *allowed* origin on another host name, so the browser's own
+    // cookie jar wouldn't send it the site's cookies.
+    second = await serve((req, res) => {
+      secondCookies.push(req.headers.cookie ?? "");
+      html(res, "<h1>second</h1>");
+    }, "localhost");
     app = await serve((req, res) => {
       switch (req.url) {
         case "/":
@@ -129,6 +138,31 @@ describe("same-origin guard", { skip }, () => {
           dashCookies.push(req.headers.cookie ?? "");
           html(res, "<h1>dashboard</h1>");
           return;
+        case "/post307":
+          html(
+            res,
+            `<form method="post" action="/p307"><input name="n" value="1"><button id="go307">go</button></form>`,
+          );
+          return;
+        case "/p307":
+          res.writeHead(307, { location: "/p307b" });
+          res.end();
+          return;
+        case "/p307b":
+          methods307.push(req.method ?? "");
+          html(res, "<h1>posted</h1>");
+          return;
+        case "/cookie-home":
+          res.writeHead(200, { "content-type": "text/html", "set-cookie": "sid=A; Path=/" });
+          res.end("<h1>home</h1>");
+          return;
+        case "/to-second":
+          res.writeHead(302, { location: `${second.url}/landing` });
+          res.end();
+          return;
+        case "/refused":
+          req.socket.destroy();
+          return;
         case "/popup":
           html(res, `<a id="pop" target="_blank" href="${other.url}/popped">pop</a>`);
           return;
@@ -150,6 +184,7 @@ describe("same-origin guard", { skip }, () => {
   after(async () => {
     await app.close();
     await other.close();
+    await second.close();
   });
 
   /** Record and return the outcome plus whatever is left in the out dir. */
@@ -206,6 +241,41 @@ describe("same-origin guard", { skip }, () => {
     assert.ok(
       dashCookies.every((c) => c.includes("session=s1")),
       dashCookies.join(" | "),
+    );
+  });
+
+  test("a 307 keeps the POST through the guard", async () => {
+    const r = await record(guarded("/post307", [{ action: "click", selector: "#go307" }]));
+    assert.equal(r.error, undefined, String(r.error));
+    assert.ok(methods307.length > 0, "the 307 target was never reached");
+    assert.ok(
+      methods307.every((m) => m === "POST"),
+      methods307.join(),
+    );
+  });
+
+  test("redirect hops to another allowed origin don't carry the site's cookies", async () => {
+    secondCookies.length = 0;
+    const r = await record({
+      site: `${app.url}/cookie-home`,
+      allowedOrigins: [second.url],
+      beats: [{ id: "a", say: "x", do: [{ action: "navigate", url: `${app.url}/to-second` }] }],
+    });
+    assert.equal(r.error, undefined, String(r.error));
+    assert.ok(secondCookies.length > 0, "the second origin was never reached");
+    assert.ok(
+      secondCookies.every((c) => !c.includes("sid=A")),
+      secondCookies.join(" | "),
+    );
+  });
+
+  test("a network error on an allowed URL is reported as such, not as leaving the site", async () => {
+    const r = await record(guarded("/", [{ action: "navigate", url: `${app.url}/refused` }]));
+    assert.ok(r.error instanceof Error, "the render should fail");
+    assert.ok(!(r.error instanceof OriginGuardError), String(r.error));
+    assert.ok(
+      r.warnings.every((w) => !/cookie/i.test(w)),
+      r.warnings.join("\n"),
     );
   });
 

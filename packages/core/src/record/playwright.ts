@@ -132,6 +132,10 @@ export class PlaywrightRecorder implements Recorder {
       ? new OriginGuard([scene.site, ...scene.allowedOrigins], pl.warn, pl.timeoutMs)
       : null;
     if (guard) await guard.install(context, page);
+    // Every page's recording (popups too, even once closed), so a guard failure
+    // can delete them all.
+    const videos = [page.video()];
+    context.on("page", (p) => videos.push(p.video()));
     /** Run `fn`, then fail if the page left the allowed origins during it. A
      *  blocked navigation usually makes `fn` throw too; the guard error wins. */
     const guarded = async (where: string, fn: () => Promise<void>) => {
@@ -209,10 +213,9 @@ export class PlaywrightRecorder implements Recorder {
       }
       // The raw recordings may already show the other site: never leave them behind.
       if (error instanceof OriginGuardError) {
-        const videos = context.pages().flatMap((p) => p.video() ?? []);
         await context.unrouteAll({ behavior: "ignoreErrors" });
         await context.close().catch(() => {});
-        for (const v of videos) rmSync(await v.path(), { force: true });
+        for (const v of videos) if (v) rmSync(await v.path(), { force: true });
       }
       throw error;
     } finally {

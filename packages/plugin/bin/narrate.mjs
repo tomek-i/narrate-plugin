@@ -23612,6 +23612,9 @@ var OriginGuard = class {
     let current = req.url();
     let method = req.method();
     let postData = req.postDataBuffer() ?? void 0;
+    let status = 0;
+    const hopHeaders = { ...req.headers() };
+    delete hopHeaders.cookie;
     let response;
     try {
       response = await route.fetch({ maxRedirects: 0, timeout: this.timeoutMs });
@@ -23625,23 +23628,26 @@ var OriginGuard = class {
           return;
         }
         if (hop > MAX_REDIRECTS) throw new Error(`more than ${MAX_REDIRECTS} redirects`);
-        if (response.status() !== 307 && response.status() !== 308) {
+        status = response.status();
+        if (status !== 307 && status !== 308) {
           method = "GET";
           postData = void 0;
+          delete hopHeaders["content-type"];
+          delete hopHeaders["content-length"];
         }
         current = target;
         response = await route.fetch({
           url: target,
           method,
+          headers: hopHeaders,
           postData,
           maxRedirects: 0,
           timeout: this.timeoutMs
         });
       }
     } catch (err) {
-      this.warn(
-        `Same-origin guard: could not load ${current}: ${err instanceof Error ? err.message : err}`
-      );
+      const reason = (err instanceof Error ? err.message : String(err)).split("\n")[0];
+      this.warn(`Same-origin guard: could not load ${current}: ${reason}`);
       await route.abort("failed");
       return;
     }
@@ -23649,7 +23655,8 @@ var OriginGuard = class {
       await route.fulfill({ response });
       return;
     }
-    await route.fulfill({ status: 302, headers: { location: current } });
+    const keepMethod = method !== "GET" && (status === 307 || status === 308);
+    await route.fulfill({ status: keepMethod ? 307 : 302, headers: { location: current } });
   }
   block(url2, isMainNav) {
     if (isMainNav) {
@@ -23659,17 +23666,23 @@ var OriginGuard = class {
       this.warn(`Blocked a request to another origin: ${url2}`);
     }
   }
+  /** The URL the page left for, if it tried to leave or is no longer on an allowed origin. */
+  offSite(page) {
+    if (this.violation) return this.violation;
+    const current = page.url();
+    if (current.startsWith("chrome-error:") || this.allows(current)) return null;
+    return current;
+  }
+  /** True once the page tried to leave, or is no longer on, an allowed origin. */
+  violated(page) {
+    return this.offSite(page) !== null;
+  }
   /**
    * Fail if the page left (or tried to leave) the allowed origins. `where` names
    * the step or beat for the error message.
    */
-  /** True once the page tried to leave, or is no longer on, an allowed origin. */
-  violated(page) {
-    return this.violation !== null || !this.allows(page.url());
-  }
   check(page, where) {
-    const current = page.url();
-    const blocked = this.violation ?? (this.allows(current) ? null : current);
+    const blocked = this.offSite(page);
     if (!blocked) return;
     throw new OriginGuardError(
       `Same-origin guard: ${where} tried to leave the allowed origins (${[...this.allowed].join(", ")}) for ${blocked}. No video was written, because the recording may show the other page.`,
@@ -23917,6 +23930,8 @@ var PlaywrightRecorder = class {
     page.setDefaultNavigationTimeout(pl.timeoutMs);
     const guard = scene.allowedOrigins ? new OriginGuard([scene.site, ...scene.allowedOrigins], pl.warn, pl.timeoutMs) : null;
     if (guard) await guard.install(context, page);
+    const videos = [page.video()];
+    context.on("page", (p) => videos.push(p.video()));
     const guarded = async (where, fn) => {
       try {
         await fn();
@@ -23980,11 +23995,10 @@ var PlaywrightRecorder = class {
         }
       }
       if (error62 instanceof OriginGuardError) {
-        const videos = context.pages().flatMap((p) => p.video() ?? []);
         await context.unrouteAll({ behavior: "ignoreErrors" });
         await context.close().catch(() => {
         });
-        for (const v of videos) rmSync(await v.path(), { force: true });
+        for (const v of videos) if (v) rmSync(await v.path(), { force: true });
       }
       throw error62;
     } finally {
