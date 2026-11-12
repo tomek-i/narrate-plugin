@@ -124,6 +124,27 @@ describe("render --json", () => {
     assert.match(readFileSync(r.out.log, "utf8"), /duplicate beat id/);
   });
 
+  test("unknown scene keys are warned about on stderr and in the log, $schema is not", async () => {
+    const scene = sceneFile("unknown-keys.json", {
+      $schema: "https://example.com/scene.schema.json",
+      site: "http://127.0.0.1:1",
+      untrused: true,
+      beats: [
+        { id: "a", say: "x", focusLable: "Name" },
+        // A duplicate id, so the render stops at validate without a browser.
+        { id: "a", say: "y" },
+      ],
+    });
+    const r = await runRender("--scene", scene, "--provider", "mock", "--log", "logs/unknown.log");
+    assert.equal(r.out.stage, "validate");
+    const log = readFileSync(r.out.log, "utf8");
+    for (const out of [r.stderr, log]) {
+      assert.match(out, /Unknown scene key untrused \(ignored\)/);
+      assert.match(out, /Unknown scene key beats\[0\]\.focusLable \(ignored\)/);
+      assert.doesNotMatch(out, /\$schema/);
+    }
+  });
+
   test("without ffmpeg on PATH the failure is stage setup", async () => {
     const scene = sceneFile("setup.json", unreachable("setup"));
     const r = await runRenderWith(

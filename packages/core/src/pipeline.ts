@@ -53,6 +53,11 @@ export interface RenderOptions {
    * whose narration is silent by design.
    */
   requireAudio?: boolean;
+  /**
+   * Warnings found before the render started, such as unknown scene keys from
+   * `loadScene`. Logged first, so they reach `onLog` and the diagnostic log.
+   */
+  warnings?: string[];
 }
 
 /** Where a render failed: checking the input, preparing tools, speech, browser, or ffmpeg. */
@@ -176,6 +181,7 @@ export async function renderScene(
     log(
       `narrate render — scene "${scene.name}", provider "${config.tts.provider}", platform ${process.platform}`,
     );
+    for (const warning of opts.warnings ?? []) log(warning);
 
     // Check the scene (and, in safe mode, reject dangerous steps) before spending
     // anything on TTS or recording.
