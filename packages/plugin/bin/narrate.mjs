@@ -23548,6 +23548,14 @@ function originOf(url2) {
   const u = new URL(url2);
   return u.protocol === "file:" ? "file://" : u.origin;
 }
+function isMainNavigation(req, page) {
+  if (!req.isNavigationRequest()) return false;
+  try {
+    return req.frame() === page.mainFrame();
+  } catch {
+    return false;
+  }
+}
 var LOCAL_SCHEMES = /* @__PURE__ */ new Set(["about:", "data:", "blob:"]);
 var OriginGuardError = class extends Error {
   constructor(message, blockedUrl) {
@@ -23557,13 +23565,16 @@ var OriginGuardError = class extends Error {
   }
   blockedUrl;
 };
+var MAX_REDIRECTS = 20;
 var OriginGuard = class {
   constructor(origins, warn = () => {
-  }) {
+  }, timeoutMs = 3e4) {
     this.warn = warn;
+    this.timeoutMs = timeoutMs;
     this.allowed = new Set(origins.map(originOf));
   }
   warn;
+  timeoutMs;
   allowed;
   violation = null;
   blockedOther = /* @__PURE__ */ new Set();
@@ -23581,35 +23592,64 @@ var OriginGuard = class {
     await context.route("**/*", (route) => this.handle(route, page));
   }
   async handle(route, page) {
-    const req = route.request();
-    const url2 = req.url();
-    const isMainNav = req.isNavigationRequest() && req.frame() === page.mainFrame();
-    if (!this.allows(url2)) {
-      this.block(url2, isMainNav);
-      await route.abort("blockedbyclient");
-      return;
-    }
-    if (!isMainNav) {
-      await route.continue();
-      return;
-    }
-    let response;
     try {
-      response = await route.fetch({ maxRedirects: 0 });
-    } catch {
-      await route.abort("failed");
-      return;
-    }
-    const location = response.headers().location;
-    if (response.status() >= 300 && response.status() < 400 && location) {
-      const target = new URL(location, url2).href;
-      if (!this.allows(target)) {
-        this.block(target, true);
+      const req = route.request();
+      const url2 = req.url();
+      if (!this.allows(url2)) {
+        this.block(url2, isMainNavigation(req, page));
         await route.abort("blockedbyclient");
         return;
       }
+      if (!req.isNavigationRequest() || !/^https?:$/.test(new URL(url2).protocol)) {
+        await route.continue();
+        return;
+      }
+      await this.navigate(route, req, page);
+    } catch {
     }
-    await route.fulfill({ response });
+  }
+  async navigate(route, req, page) {
+    let current = req.url();
+    let method = req.method();
+    let postData = req.postDataBuffer() ?? void 0;
+    let response;
+    try {
+      response = await route.fetch({ maxRedirects: 0, timeout: this.timeoutMs });
+      for (let hop = 1; ; hop++) {
+        const location = response.headers().location;
+        if (response.status() < 300 || response.status() >= 400 || !location) break;
+        const target = new URL(location, current).href;
+        if (!this.allows(target)) {
+          this.block(target, isMainNavigation(req, page));
+          await route.abort("blockedbyclient");
+          return;
+        }
+        if (hop > MAX_REDIRECTS) throw new Error(`more than ${MAX_REDIRECTS} redirects`);
+        if (response.status() !== 307 && response.status() !== 308) {
+          method = "GET";
+          postData = void 0;
+        }
+        current = target;
+        response = await route.fetch({
+          url: target,
+          method,
+          postData,
+          maxRedirects: 0,
+          timeout: this.timeoutMs
+        });
+      }
+    } catch (err) {
+      this.warn(
+        `Same-origin guard: could not load ${current}: ${err instanceof Error ? err.message : err}`
+      );
+      await route.abort("failed");
+      return;
+    }
+    if (current === req.url()) {
+      await route.fulfill({ response });
+      return;
+    }
+    await route.fulfill({ status: 302, headers: { location: current } });
   }
   block(url2, isMainNav) {
     if (isMainNav) {
@@ -23623,6 +23663,10 @@ var OriginGuard = class {
    * Fail if the page left (or tried to leave) the allowed origins. `where` names
    * the step or beat for the error message.
    */
+  /** True once the page tried to leave, or is no longer on, an allowed origin. */
+  violated(page) {
+    return this.violation !== null || !this.allows(page.url());
+  }
   check(page, where) {
     const current = page.url();
     const blocked = this.violation ?? (this.allows(current) ? null : current);
@@ -23853,7 +23897,10 @@ var PlaywrightRecorder = class {
       // Start already authenticated from a saved storage state (cookies +
       // localStorage), so the login screen is skipped and no credential is needed.
       // The path is resolved/validated by the pipeline before we get here.
-      ...scene.auth?.storageState ? { storageState: scene.auth.storageState } : {}
+      ...scene.auth?.storageState ? { storageState: scene.auth.storageState } : {},
+      // Requests a service worker answers bypass routing, so the same-origin
+      // guard can't see them: no service workers while it's on.
+      ...scene.allowedOrigins ? { serviceWorkers: "block" } : {}
     });
     const fx = this.config.overlay;
     if (fx.cursor || fx.highlight) {
@@ -23868,7 +23915,7 @@ var PlaywrightRecorder = class {
       warn: (msg) => this.log(`\u26A0\uFE0F  ${msg}`)
     };
     page.setDefaultNavigationTimeout(pl.timeoutMs);
-    const guard = scene.allowedOrigins ? new OriginGuard([scene.site, ...scene.allowedOrigins], pl.warn) : null;
+    const guard = scene.allowedOrigins ? new OriginGuard([scene.site, ...scene.allowedOrigins], pl.warn, pl.timeoutMs) : null;
     if (guard) await guard.install(context, page);
     const guarded = async (where, fn) => {
       try {
@@ -23917,18 +23964,29 @@ var PlaywrightRecorder = class {
         guard?.check(page, `beat "${beat.id}"`);
         if (fx.highlight) await clearHighlight(page);
       }
+      guard?.check(page, "the end of the scene");
       const video = page.video();
+      await context.unrouteAll({ behavior: "ignoreErrors" });
       await context.close();
       const videoPath = video ? await video.path() : "";
       return { videoPath, leadInMs };
     } catch (err) {
-      if (err instanceof OriginGuardError) {
-        const video = page.video();
+      let error62 = err;
+      if (guard && !(error62 instanceof OriginGuardError) && guard.violated(page)) {
+        try {
+          guard.check(page, "the scene");
+        } catch (guardErr) {
+          error62 = guardErr;
+        }
+      }
+      if (error62 instanceof OriginGuardError) {
+        const videos = context.pages().flatMap((p) => p.video() ?? []);
+        await context.unrouteAll({ behavior: "ignoreErrors" });
         await context.close().catch(() => {
         });
-        if (video) rmSync(await video.path(), { force: true });
+        for (const v of videos) rmSync(await v.path(), { force: true });
       }
-      throw err;
+      throw error62;
     } finally {
       await browser.close();
     }
@@ -24213,7 +24271,7 @@ async function captureAuth(opts) {
 }
 
 // src/pipeline.ts
-import { copyFileSync, existsSync as existsSync4, mkdirSync as mkdirSync3, writeFileSync as writeFileSync4 } from "fs";
+import { copyFileSync, existsSync as existsSync4, mkdirSync as mkdirSync3, rmSync as rmSync3, writeFileSync as writeFileSync4 } from "fs";
 import { join as join5, resolve as resolve3 } from "path";
 import { pathToFileURL as pathToFileURL2 } from "url";
 
@@ -24534,6 +24592,7 @@ async function render(scene, config2, opts) {
   }
   const sceneToRecord = { ...scene, site: resolveSite(scene.site, opts.cwd), auth };
   if (sceneToRecord.allowedOrigins) {
+    rmSync3(join5(outDir, `${scene.name}.${config2.output.format}`), { force: true });
     log(
       `Same-origin guard: on (allowed: ${[sceneToRecord.site, ...sceneToRecord.allowedOrigins].map(originOf).join(", ")})`
     );
@@ -24648,7 +24707,7 @@ program2.command("render").description("TTS \u2192 record \u2192 mux into one na
   }
   if (o.out) config2.output.dir = o.out;
   const scene = loadScene(cwd, o.scene);
-  if (o.sameOrigin) scene.allowedOrigins = [scene.site];
+  if (o.sameOrigin) scene.allowedOrigins = [];
   const out = await render(scene, config2, {
     cwd,
     scenePath: o.scene,

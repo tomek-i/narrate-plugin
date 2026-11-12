@@ -1,4 +1,4 @@
-import type { BrowserContext, Page, Route } from "playwright";
+import type { BrowserContext, Page, Request, Route } from "playwright";
 
 /**
  * The origin of a URL as the guard compares it. `file:` URLs have an opaque
@@ -8,6 +8,20 @@ import type { BrowserContext, Page, Route } from "playwright";
 export function originOf(url: string): string {
   const u = new URL(url);
   return u.protocol === "file:" ? "file://" : u.origin;
+}
+
+/**
+ * Whether a request navigates the recorded page itself (not an iframe or a
+ * popup). `frame()` throws for a popup's first navigation, issued before its
+ * frame exists — that's not the recorded page.
+ */
+function isMainNavigation(req: Request, page: Page): boolean {
+  if (!req.isNavigationRequest()) return false;
+  try {
+    return req.frame() === page.mainFrame();
+  } catch {
+    return false;
+  }
 }
 
 /** Schemes that never reach a server (inline content, the blank page). */
@@ -24,14 +38,23 @@ export class OriginGuardError extends Error {
   }
 }
 
+/** Redirect hops followed for one navigation before giving up (as browsers do). */
+const MAX_REDIRECTS = 20;
+
 /**
  * Keeps a recording on the scene's own site. Every request in the browser
  * context is routed through `install`: requests to other origins are aborted, so
- * the other server never sees them. Navigations of the main page are fetched
- * without following redirects, so a 3xx to another origin is refused before the
- * browser follows it. A blocked main-page navigation is remembered as a
- * violation; the recorder checks for one after every step and at the end of
- * every beat (`check`) and fails the render.
+ * the other server never sees them.
+ *
+ * Navigations need more: Playwright doesn't route the redirect hops of a
+ * navigation, so a 3xx from the site to another origin would be followed
+ * unseen. So the guard fetches each navigation itself, one hop at a time
+ * (`maxRedirects: 0`), refusing any hop to another origin. A chain that stays
+ * on allowed origins is handed back to the browser as a single redirect to
+ * where it ends, which the browser then loads.
+ *
+ * A blocked navigation of the recorded page is remembered as a violation; the
+ * recorder checks after every step and every beat (`check`) and fails the render.
  */
 export class OriginGuard {
   private readonly allowed: Set<string>;
@@ -41,6 +64,8 @@ export class OriginGuard {
   constructor(
     origins: string[],
     private readonly warn: (msg: string) => void = () => {},
+    /** Timeout for each hop the guard fetches itself (ms; 0 = none). */
+    private readonly timeoutMs = 30000,
   ) {
     this.allowed = new Set(origins.map(originOf));
   }
@@ -61,39 +86,72 @@ export class OriginGuard {
   }
 
   private async handle(route: Route, page: Page): Promise<void> {
-    const req = route.request();
-    const url = req.url();
-    const isMainNav = req.isNavigationRequest() && req.frame() === page.mainFrame();
-    if (!this.allows(url)) {
-      this.block(url, isMainNav);
-      await route.abort("blockedbyclient");
-      return;
-    }
-    if (!isMainNav) {
-      await route.continue();
-      return;
-    }
-    // Fetch the navigation ourselves without following redirects, so a 3xx
-    // `Location` to another origin can be refused before the browser follows it.
-    // An allowed redirect is handed back to the browser, which follows it as a
-    // new request — routed here again.
-    let response: Awaited<ReturnType<Route["fetch"]>>;
     try {
-      response = await route.fetch({ maxRedirects: 0 });
-    } catch {
-      await route.abort("failed");
-      return;
-    }
-    const location = response.headers().location;
-    if (response.status() >= 300 && response.status() < 400 && location) {
-      const target = new URL(location, url).href;
-      if (!this.allows(target)) {
-        this.block(target, true);
+      const req = route.request();
+      const url = req.url();
+      if (!this.allows(url)) {
+        this.block(url, isMainNavigation(req, page));
         await route.abort("blockedbyclient");
         return;
       }
+      // Subresource redirects are routed hop by hop already; only navigations
+      // over http(s) need the guard to walk the chain (file: can't redirect).
+      if (!req.isNavigationRequest() || !/^https?:$/.test(new URL(url).protocol)) {
+        await route.continue();
+        return;
+      }
+      await this.navigate(route, req, page);
+    } catch {
+      // The page or context closed mid-request (e.g. at the end of the recording).
     }
-    await route.fulfill({ response });
+  }
+
+  private async navigate(route: Route, req: Request, page: Page): Promise<void> {
+    let current = req.url();
+    let method = req.method();
+    let postData = req.postDataBuffer() ?? undefined;
+    let response: Awaited<ReturnType<Route["fetch"]>>;
+    try {
+      response = await route.fetch({ maxRedirects: 0, timeout: this.timeoutMs });
+      for (let hop = 1; ; hop++) {
+        const location = response.headers().location;
+        if (response.status() < 300 || response.status() >= 400 || !location) break;
+        const target = new URL(location, current).href;
+        if (!this.allows(target)) {
+          this.block(target, isMainNavigation(req, page));
+          await route.abort("blockedbyclient");
+          return;
+        }
+        if (hop > MAX_REDIRECTS) throw new Error(`more than ${MAX_REDIRECTS} redirects`);
+        // 307/308 repeat the request as is; the others turn it into a GET.
+        if (response.status() !== 307 && response.status() !== 308) {
+          method = "GET";
+          postData = undefined;
+        }
+        current = target;
+        response = await route.fetch({
+          url: target,
+          method,
+          postData,
+          maxRedirects: 0,
+          timeout: this.timeoutMs,
+        });
+      }
+    } catch (err) {
+      this.warn(
+        `Same-origin guard: could not load ${current}: ${err instanceof Error ? err.message : err}`,
+      );
+      await route.abort("failed");
+      return;
+    }
+    if (current === req.url()) {
+      await route.fulfill({ response });
+      return;
+    }
+    // The whole chain stays on allowed origins: send the browser straight to
+    // where it ends. (It loads that last page itself, so the page is requested
+    // twice; if it then redirects elsewhere, the page-URL checks still catch it.)
+    await route.fulfill({ status: 302, headers: { location: current } });
   }
 
   private block(url: string, isMainNav: boolean): void {
@@ -111,6 +169,11 @@ export class OriginGuard {
    * Fail if the page left (or tried to leave) the allowed origins. `where` names
    * the step or beat for the error message.
    */
+  /** True once the page tried to leave, or is no longer on, an allowed origin. */
+  violated(page: Page): boolean {
+    return this.violation !== null || !this.allows(page.url());
+  }
+
   check(page: Page, where: string): void {
     const current = page.url();
     const blocked = this.violation ?? (this.allows(current) ? null : current);

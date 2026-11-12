@@ -41,7 +41,8 @@ program
     }
     if (o.out) config.output.dir = o.out;
     const scene = loadScene(cwd, o.scene);
-    if (o.sameOrigin) scene.allowedOrigins = [scene.site];
+    // Empty list = only the site's own origin (always allowed).
+    if (o.sameOrigin) scene.allowedOrigins = [];
     const out = await render(scene, config, {
       cwd,
       scenePath: o.scene,

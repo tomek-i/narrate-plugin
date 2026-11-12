@@ -106,6 +106,9 @@ export class PlaywrightRecorder implements Recorder {
       // localStorage), so the login screen is skipped and no credential is needed.
       // The path is resolved/validated by the pipeline before we get here.
       ...(scene.auth?.storageState ? { storageState: scene.auth.storageState } : {}),
+      // Requests a service worker answers bypass routing, so the same-origin
+      // guard can't see them: no service workers while it's on.
+      ...(scene.allowedOrigins ? { serviceWorkers: "block" as const } : {}),
     });
     // Inject the synthetic-cursor + highlight overlay (if either is enabled) so
     // it's present on every page/navigation. It's inert until the steps call it.
@@ -126,7 +129,7 @@ export class PlaywrightRecorder implements Recorder {
     page.setDefaultNavigationTimeout(pl.timeoutMs);
     // Opt-in: keep the browser on the scene's site (its origin is always allowed).
     const guard = scene.allowedOrigins
-      ? new OriginGuard([scene.site, ...scene.allowedOrigins], pl.warn)
+      ? new OriginGuard([scene.site, ...scene.allowedOrigins], pl.warn, pl.timeoutMs)
       : null;
     if (guard) await guard.install(context, page);
     /** Run `fn`, then fail if the page left the allowed origins during it. A
@@ -186,18 +189,32 @@ export class PlaywrightRecorder implements Recorder {
         if (fx.highlight) await clearHighlight(page);
       }
 
+      // A redirect can still land after the last beat's check.
+      guard?.check(page, "the end of the scene");
       const video = page.video();
+      await context.unrouteAll({ behavior: "ignoreErrors" });
       await context.close(); // finalizes the webm
       const videoPath = video ? await video.path() : "";
       return { videoPath, leadInMs };
     } catch (err) {
-      // The raw recording may already show the other site: never leave it behind.
-      if (err instanceof OriginGuardError) {
-        const video = page.video();
-        await context.close().catch(() => {});
-        if (video) rmSync(await video.path(), { force: true });
+      let error = err;
+      // Leaving the site can also break a step the guard doesn't wrap (e.g. an
+      // overlay call fails as the page navigates); report the real cause.
+      if (guard && !(error instanceof OriginGuardError) && guard.violated(page)) {
+        try {
+          guard.check(page, "the scene");
+        } catch (guardErr) {
+          error = guardErr;
+        }
       }
-      throw err;
+      // The raw recordings may already show the other site: never leave them behind.
+      if (error instanceof OriginGuardError) {
+        const videos = context.pages().flatMap((p) => p.video() ?? []);
+        await context.unrouteAll({ behavior: "ignoreErrors" });
+        await context.close().catch(() => {});
+        for (const v of videos) rmSync(await v.path(), { force: true });
+      }
+      throw error;
     } finally {
       await browser.close();
     }

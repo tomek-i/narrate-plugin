@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { after, before, describe, test } from "node:test";
+import { pathToFileURL } from "node:url";
 import { OriginGuardError } from "../src/record/origin-guard.js";
 import { PlaywrightRecorder } from "../src/record/playwright.js";
 import { ConfigSchema, SceneSchema } from "../src/types.js";
@@ -92,6 +93,9 @@ describe("page-load wait", { skip }, () => {
 describe("same-origin guard", { skip }, () => {
   let app: TestServer;
   let other: TestServer;
+  const fileDir = tempDir("narrate-file-site-");
+  const dashCookies: string[] = [];
+  after(() => fileDir.cleanup());
   before(async () => {
     other = await serve((_req, res) => html(res, "<h1>Another site</h1>"));
     app = await serve((req, res) => {
@@ -106,6 +110,28 @@ describe("same-origin guard", { skip }, () => {
           res.writeHead(302, { location: `${other.url}/landing` });
           res.end();
           return;
+        case "/hop1":
+          res.writeHead(302, { location: "/hop2" });
+          res.end();
+          return;
+        case "/hop2":
+          res.writeHead(302, { location: `${other.url}/chain` });
+          res.end();
+          return;
+        case "/login":
+          html(res, `<form method="post" action="/do-login"><button id="go">go</button></form>`);
+          return;
+        case "/do-login":
+          res.writeHead(303, { location: "/dash", "set-cookie": "session=s1; Path=/" });
+          res.end();
+          return;
+        case "/dash":
+          dashCookies.push(req.headers.cookie ?? "");
+          html(res, "<h1>dashboard</h1>");
+          return;
+        case "/popup":
+          html(res, `<a id="pop" target="_blank" href="${other.url}/popped">pop</a>`);
+          return;
         case "/inside":
           res.writeHead(302, { location: "/with-image" });
           res.end();
@@ -113,7 +139,7 @@ describe("same-origin guard", { skip }, () => {
         case "/timed":
           html(
             res,
-            `<script>setTimeout(() => { location.href = "${other.url}/"; }, 1500);</script>`,
+            `<script>setTimeout(() => { location.href = "${other.url}/"; }, 2500);</script>`,
           );
           return;
         default:
@@ -166,9 +192,39 @@ describe("same-origin guard", { skip }, () => {
   });
 
   test("follows a redirect that stays on the site", async () => {
+    other.hits.length = 0;
     const r = await record(guarded("/inside"));
     assert.equal(r.error, undefined);
     assert.equal(r.videos.length, 1);
+    assert.deepEqual(other.hits, []);
+  });
+
+  test("a form POST that redirects keeps its cookie and lands on the page", async () => {
+    const r = await record(guarded("/login", [{ action: "click", selector: "#go" }]));
+    assert.equal(r.error, undefined, String(r.error));
+    assert.ok(dashCookies.length > 0, "the dashboard was never loaded");
+    assert.ok(
+      dashCookies.every((c) => c.includes("session=s1")),
+      dashCookies.join(" | "),
+    );
+  });
+
+  test("a popup to another origin is blocked and doesn't crash the render", async () => {
+    other.hits.length = 0;
+    const r = await record(guarded("/popup", [{ action: "click", selector: "#pop" }]));
+    assert.equal(r.error, undefined, String(r.error));
+    assert.deepEqual(other.hits, []);
+  });
+
+  test("works for a local file site", async () => {
+    const file = join(fileDir.dir, "page.html");
+    writeFileSync(file, "<h1>local</h1>");
+    const r = await record({
+      site: pathToFileURL(file).href,
+      allowedOrigins: [],
+      beats: [{ id: "a", say: "x" }],
+    });
+    assert.equal(r.error, undefined, String(r.error));
   });
 
   for (const [name, path, steps, seconds] of [
@@ -179,7 +235,13 @@ describe("same-origin guard", { skip }, () => {
       0.5,
     ],
     ["a link click to another origin", "/", [{ action: "click", selector: "#out" }], 0.5],
-    ["a timed client redirect during a beat", "/timed", [], 3],
+    [
+      "a two-hop redirect that ends on another origin",
+      "/",
+      [{ action: "navigate", url: "PLACEHOLDER/hop1" }],
+      0.5,
+    ],
+    ["a timed client redirect during a beat", "/timed", [], 5],
   ] as const) {
     test(`${name} fails the render and leaves no video`, async () => {
       other.hits.length = 0;

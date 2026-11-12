@@ -76,5 +76,9 @@ export async function browserSkipReason(): Promise<string | false> {
 
 export function tempDir(prefix: string): { dir: string; cleanup(): void } {
   const dir = mkdtempSync(join(tmpdir(), prefix));
-  return { dir, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+  // Retries: on Windows a just-closed browser can hold a video file for a moment.
+  return {
+    dir,
+    cleanup: () => rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }),
+  };
 }

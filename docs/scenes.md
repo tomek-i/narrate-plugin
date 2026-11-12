@@ -124,8 +124,16 @@ With the guard on:
   during a beat. The error names the beat and step and the blocked URL, and **no
   video is written**, because the recording may already show the other page.
 
-The origin of `site` is always allowed. All local `file://` pages count as one
-origin. Without `allowedOrigins`, nothing is blocked.
+The origin of `site` is always allowed (`"allowedOrigins": []` means just that
+origin). All local `file://` pages count as one origin. Without `allowedOrigins`,
+nothing is blocked.
+
+How it works, and what it costs: the browser doesn't expose a navigation's
+redirect hops, so narrate requests each hop of a navigation itself and refuses
+any hop to another origin. When a navigation redirects within the site, the
+page it ends on is requested twice (once to check it, once by the browser).
+Service workers are disabled while the guard is on, because requests they
+answer can't be checked.
 
 ## Page loads
 
