@@ -29,18 +29,21 @@ the default config uses the OS's built-in voice.
 
 2. **Render the bundled demo** into a temp dir:
    ```bash
-   node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" render \
+   node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" render --json \
      --scene "${CLAUDE_PLUGIN_ROOT}/examples/demo.scene.json" --out ./.narrate/tmp
    ```
+   Stdout is one JSON line (progress is on stderr). If `ok` is false, report its
+   `stage` and `error`, and the `log` file for details.
 
 3. **Deliver.** Create `./docs/` if needed and copy
    `./.narrate/tmp/narrate-demo.mp4` → `./docs/narrate-demo.mp4`. Ensure the
    project's `.gitignore` contains `.narrate/`.
 
-4. **Report audio, then clean up.** Read `./.narrate/tmp/narrate.log` and quote its
-   **"Final audio"** line (stream present? mean volume in dB) so the user knows the
-   muxed audio is real. If it reports the stream MISSING or silent, surface that and
-   keep `./.narrate/tmp` for debugging; otherwise **delete `./.narrate/tmp`**
+4. **Report audio, then clean up.** Quote the result's `audio` (stream present?
+   mean volume in dB) so the user knows the narration is real. (A silent or
+   missing audio track already fails a `--json` render, except with the silent
+   `mock` voice.) If something looks wrong, keep `./.narrate/tmp` (it has
+   `narrate.log`) for debugging; otherwise **delete `./.narrate/tmp`**
    automatically — the deliverable lives at `./docs/narrate-demo.mp4`.
    (Note: VS Code's built-in preview can't decode the audio — verify in VLC or a browser.)
 
