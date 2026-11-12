@@ -290,8 +290,16 @@ program
       console.log("Running from source: no launchers written (they need the built CLI).");
       return;
     }
-    writeLaunchers(bundle);
     const dir = launcherDir();
+    try {
+      writeLaunchers(bundle, packageVersion());
+    } catch (err) {
+      // The launchers are optional: don't fail a setup that already installed everything.
+      console.error(
+        `⚠️  Could not write the launchers in ${dir}: ${err instanceof Error ? err.message : err}`,
+      );
+      return;
+    }
     console.log(`Launchers in ${dir} now run ${bundle}:`);
     console.log(`  node "${join(dir, "narrate.mjs")}" <command>`);
     console.log(`  Add ${dir} to your PATH to run plain \`narrate <command>\`.`);

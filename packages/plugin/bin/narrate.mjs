@@ -24313,7 +24313,15 @@ async function captureAuth(opts) {
 }
 
 // src/launcher.ts
-import { chmodSync, existsSync as existsSync4, mkdirSync as mkdirSync3, readFileSync as readFileSync5, writeFileSync as writeFileSync3 } from "fs";
+import {
+  chmodSync,
+  existsSync as existsSync4,
+  mkdirSync as mkdirSync3,
+  readFileSync as readFileSync5,
+  renameSync,
+  rmSync as rmSync2,
+  writeFileSync as writeFileSync3
+} from "fs";
 import { dirname as dirname5, join as join4 } from "path";
 import { fileURLToPath as fileURLToPath2 } from "url";
 function launcherDir() {
@@ -24326,54 +24334,118 @@ function runningBundle() {
 function isInstalledPlugin(bundle) {
   return /[\\/]plugins[\\/]cache[\\/]/.test(bundle);
 }
-function launcherFiles(target) {
+function compareVersions(a, b) {
+  const pa = a.split(/[.-]/).map((n) => Number.parseInt(n, 10) || 0);
+  const pb = b.split(/[.-]/).map((n) => Number.parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pa[i] ?? 0) - (pb[i] ?? 0);
+    if (d) return Math.sign(d);
+  }
+  return 0;
+}
+function shQuote(s) {
+  return `'${s.replaceAll("'", "'\\''")}'`;
+}
+function launcherFiles(target, version2, dir) {
   return {
     "narrate.mjs": `#!/usr/bin/env node
-// Written by narrate: forwards to the installed CLI, so this path stays the same
-// across plugin updates. Rewritten whenever the plugin's CLI runs; don't edit.
-import { existsSync } from "node:fs";
+// Written by narrate ${version2}: runs the narrate CLI that Claude Code has
+// installed, so this path stays the same across plugin updates. Don't edit;
+// the plugin rewrites it.
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
-const target = ${JSON.stringify(target)};
+const fallback = ${JSON.stringify(target)};
+
+/** The installed plugin's bundle, per Claude Code's own install record. */
+function installed() {
+  try {
+    const home = process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
+    const record = JSON.parse(readFileSync(join(home, "plugins", "installed_plugins.json"), "utf8"));
+    const installs = Object.entries(record.plugins ?? {})
+      .filter(([key, list]) => key.startsWith("narrate@") && Array.isArray(list))
+      .flatMap(([, list]) => list)
+      .sort((a, b) => (a?.scope === "user" ? 0 : 1) - (b?.scope === "user" ? 0 : 1));
+    for (const install of installs) {
+      if (typeof install?.installPath !== "string") continue;
+      const bundle = join(install.installPath, "bin", "narrate.mjs");
+      if (existsSync(bundle)) return bundle;
+    }
+  } catch {
+    // No readable record: use the bundle this launcher was written for.
+  }
+  return null;
+}
+
+const target = installed() ?? fallback;
 if (!existsSync(target)) {
   console.error(
-    \`narrate: \${target} no longer exists (the plugin was updated or removed). Use any narrate skill in Claude Code once, or run the new version's \\\`narrate setup\\\`, to update this launcher.\`,
+    \`narrate: \${target} no longer exists (the plugin was updated or removed). Run any narrate command or skill from Claude Code once to update this launcher.\`,
   );
   process.exit(1);
 }
 await import(pathToFileURL(target).href);
 `,
+    // The launcher folder is written in, so a symlink to this script still works.
     narrate: `#!/bin/sh
-exec node "$(dirname "$0")/narrate.mjs" "$@"
+exec node ${shQuote(join4(dir, "narrate.mjs"))} "$@"
 `,
     "narrate.cmd": `@echo off\r
 node "%~dp0narrate.mjs" %*\r
 `
   };
 }
-function writeLaunchers(target, dir = launcherDir()) {
+function writeAtomic(file2, content) {
+  const tmp = `${file2}.${process.pid}.tmp`;
+  try {
+    writeFileSync3(tmp, content);
+    renameSync(tmp, file2);
+  } catch {
+    rmSync2(tmp, { force: true });
+    writeFileSync3(file2, content);
+  }
+}
+function writeLaunchers(target, version2, dir = launcherDir()) {
   let changed = false;
-  for (const [name, content] of Object.entries(launcherFiles(target))) {
+  for (const [name, content] of Object.entries(launcherFiles(target, version2, dir))) {
     const file2 = join4(dir, name);
     if (existsSync4(file2) && readFileSync5(file2, "utf8") === content) continue;
     mkdirSync3(dir, { recursive: true });
-    writeFileSync3(file2, content);
+    writeAtomic(file2, content);
     if (name !== "narrate.cmd") chmodSync(file2, 493);
     changed = true;
   }
   return changed;
 }
-function refreshLaunchers() {
+function launcherTarget(dir = launcherDir()) {
+  try {
+    const text = readFileSync5(join4(dir, "narrate.mjs"), "utf8");
+    const version2 = /Written by narrate (\S+):/.exec(text)?.[1];
+    const target = /^const fallback = (".*");$/m.exec(text)?.[1];
+    return version2 && target ? { target: JSON.parse(target), version: version2 } : null;
+  } catch {
+    return null;
+  }
+}
+function shouldRefresh(version2, dir = launcherDir()) {
+  const current = launcherTarget(dir);
+  if (!current || !existsSync4(current.target)) return true;
+  return compareVersions(version2, current.version) >= 0;
+}
+function refreshLaunchers(dir = launcherDir()) {
   const bundle = runningBundle();
   if (!bundle || !isInstalledPlugin(bundle)) return;
   try {
-    writeLaunchers(bundle);
+    const version2 = packageVersion();
+    if (shouldRefresh(version2, dir)) writeLaunchers(bundle, version2, dir);
   } catch {
   }
 }
 
 // src/pipeline.ts
-import { copyFileSync, existsSync as existsSync6, mkdirSync as mkdirSync4, rmSync as rmSync3, writeFileSync as writeFileSync5 } from "fs";
+import { copyFileSync, existsSync as existsSync6, mkdirSync as mkdirSync4, rmSync as rmSync4, writeFileSync as writeFileSync5 } from "fs";
 import { dirname as dirname6, join as join6, resolve as resolve4 } from "path";
 import { pathToFileURL as pathToFileURL3 } from "url";
 
@@ -24490,7 +24562,7 @@ var MockProvider = class {
 
 // src/tts/os.ts
 import { execFileSync as execFileSync4 } from "child_process";
-import { mkdtempSync, readFileSync as readFileSync6, rmSync as rmSync2, writeFileSync as writeFileSync4 } from "fs";
+import { mkdtempSync, readFileSync as readFileSync6, rmSync as rmSync3, writeFileSync as writeFileSync4 } from "fs";
 import { tmpdir } from "os";
 import { join as join5 } from "path";
 var OsTtsProvider = class {
@@ -24527,7 +24599,7 @@ function scratch() {
     dir,
     txt: join5(dir, "in.txt"),
     out: (ext) => join5(dir, `out.${ext}`),
-    clean: () => rmSync2(dir, { recursive: true, force: true })
+    clean: () => rmSync3(dir, { recursive: true, force: true })
   };
 }
 function windows(text, voice) {
@@ -24944,7 +25016,7 @@ ${formatProblems(problems)}`
     };
     const finalOut = join6(outDir, `${scene.name}.${config2.output.format}`);
     if (sceneToRecord.allowedOrigins) {
-      rmSync3(finalOut, { force: true });
+      rmSync4(finalOut, { force: true });
       log(
         `Same-origin guard: on (allowed: ${[sceneToRecord.site, ...sceneToRecord.allowedOrigins].map(originOf).join(", ")})`
       );
@@ -24978,7 +25050,7 @@ ${mux.stderr.trim().split("\n").slice(-12).join("\n")}`);
     const silent2 = problem !== null;
     if (problem) {
       if (requireAudio) {
-        rmSync3(finalOut, { force: true });
+        rmSync4(finalOut, { force: true });
         throw new Error(`${problem}; the video was removed.`);
       }
       log(`\u26A0\uFE0F  Warning: ${problem}.`);
@@ -25227,8 +25299,15 @@ program2.command("setup").description(
     console.log("Running from source: no launchers written (they need the built CLI).");
     return;
   }
-  writeLaunchers(bundle);
   const dir = launcherDir();
+  try {
+    writeLaunchers(bundle, packageVersion());
+  } catch (err) {
+    console.error(
+      `\u26A0\uFE0F  Could not write the launchers in ${dir}: ${err instanceof Error ? err.message : err}`
+    );
+    return;
+  }
   console.log(`Launchers in ${dir} now run ${bundle}:`);
   console.log(`  node "${join7(dir, "narrate.mjs")}" <command>`);
   console.log(`  Add ${dir} to your PATH to run plain \`narrate <command>\`.`);

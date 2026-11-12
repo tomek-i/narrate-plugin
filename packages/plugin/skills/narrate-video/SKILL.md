@@ -112,7 +112,7 @@ save a session for authenticated scenes — see below), and `setup` (force-insta
 Playwright + Chromium; normally automatic; also writes the stable launchers in
 `~/.narrate/bin`). Outside Claude Code (scripts, CI on a machine with the plugin),
 call `node ~/.narrate/bin/narrate.mjs <command>`, never the versioned cache path:
-the launcher always runs the current plugin version. TTS provider/key onboarding lives in the
+the launcher runs the installed plugin version. TTS provider/key onboarding lives in the
 **`/narrate-setup`** skill.
 
 ## Prerequisites

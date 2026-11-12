@@ -65,17 +65,20 @@ launchers in `~/.narrate/bin` instead (`$NARRATE_HOME/bin` if you set
 ```bash
 node ~/.narrate/bin/narrate.mjs render --scene scene.json
 ~/.narrate/bin/narrate render --scene scene.json        # macOS/Linux (sh)
-%USERPROFILE%\.narrate\bin\narrate.cmd render --scene scene.json   # Windows
+%USERPROFILE%\.narrate\bin\narrate.cmd render --scene scene.json   # Windows (cmd)
+& "$env:USERPROFILE\.narrate\bin\narrate.cmd" render --scene scene.json  # Windows (PowerShell)
 ```
 
 Add `~/.narrate/bin` to your `PATH` to run plain `narrate`.
 
-The launchers forward to the installed plugin's CLI. Every time the plugin's CLI
-runs (any narrate skill, or any command), it points them at itself, so after a
-plugin update they switch to the new version the first time it runs. To create
-or refresh them by hand, run `setup` with the plugin's CLI:
-`node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" setup`. If the version they point
-at has been removed, they say so and exit 1.
+The launchers run the narrate version Claude Code has installed: they read
+Claude Code's install record (`~/.claude/plugins/installed_plugins.json`, or
+under `CLAUDE_CONFIG_DIR`), so a plugin update takes effect immediately. If that
+record can't be read, they run the version that last wrote them. The plugin's
+CLI writes them the first time it runs (any narrate skill or command), and
+rewrites them when it is newer than that version, never older. To create them
+by hand, run `node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" setup`. If the
+version they would run has been removed, they say so and exit 1.
 
 Settings are global with per-project overrides (see
 [configuration.md](./configuration.md)). `set-key` stores an API key in your
