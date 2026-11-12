@@ -195,6 +195,26 @@ Each beat is held on screen for **exactly its narration length**. Keep a beat's
 `do` steps shorter than its spoken line; if the steps overrun, the engine logs a
 warning so you can split the beat or lengthen the narration.
 
+## Voice tags
+
+A beat's `say` text can carry short bracketed cues that change how it's spoken:
+
+```json
+{ "id": "intro", "say": "[excited] Welcome to Aurora! [short pause] Let's take a look." }
+```
+
+- **Gemini** treats them as style cues (how well depends on the tag; check the result).
+- **ElevenLabs** acts on them only with a v3 model (`tts.elevenlabs.model:
+  "eleven_v3"`). Older models would read them out, so narrate removes them first.
+- **The OS voice and `mock`** get the text without them.
+- **Captions** (`output.vtt`) never show them.
+
+A tag is lowercase: a word or a few words in square brackets (lowercase letters
+in any script, spaces, `'` and `-`, up to 40 characters). So keys and labels such
+as `[Enter]` or `[Save]` stay part of the narration, and so does a markdown link
+`[text](url)`; a lowercase label like `[save]` would be taken as a tag. A beat
+with tags needs words besides them.
+
 ## Theme
 
 The optional `theme` emulates the browser's `prefers-color-scheme`, so it works

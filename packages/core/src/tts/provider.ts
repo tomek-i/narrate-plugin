@@ -11,5 +11,7 @@ export interface SynthOptions {
 
 export interface TTSProvider {
   readonly name: string;
+  /** True if the voice acts on `[tag]` cues in the text; otherwise they're removed first. */
+  readonly voiceTags?: boolean;
   synth(text: string, opts?: SynthOptions): Promise<SynthResult>;
 }

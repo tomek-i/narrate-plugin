@@ -83,6 +83,9 @@ node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" <command> …
   `./.narrate/settings.local.json` (project override), set `tts.provider`, and fill
   the matching block — `tts.<provider>.key` plus its `voice`/`model`. A project file
   only needs the keys it overrides.
+- **Voice tags:** scenes can use cues like `[excited]` in their narration. Gemini
+  treats them as style cues (results vary by tag). For ElevenLabs, set `tts.elevenlabs.model` to `eleven_v3` so they
+  do too; with older models narrate removes them so they aren't read out.
 - **CI:** instead of storing the key in the file, set `NARRATE_GEMINI_API_KEY` /
   `NARRATE_ELEVENLABS_API_KEY` in the environment — an in-file `key` takes
   precedence, the env var is the fallback (override the var name via

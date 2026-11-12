@@ -24609,6 +24609,10 @@ var ElevenLabsProvider = class {
   voice;
   model;
   name = "elevenlabs";
+  /** Only the v3 models act on audio tags; older ones would read them out. */
+  get voiceTags() {
+    return this.model.startsWith("eleven_v3");
+  }
   async synth(text, opts) {
     const voiceId = opts?.voice ?? this.voice;
     const url2 = `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}`;
@@ -24668,6 +24672,7 @@ var GeminiProvider = class {
   voice;
   model;
   name = "gemini";
+  voiceTags = true;
   async synth(text, opts) {
     const voice = opts?.voice ?? this.voice;
     const url2 = `https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent?key=${this.key}`;
@@ -24841,6 +24846,23 @@ function makeProvider(config2, settingsFiles) {
   }
 }
 
+// src/tts/tags.ts
+var TAG = /\[\p{Ll}[\p{Ll} '-]{0,39}\](?!\()/u;
+var TAG_WITH_SPACE = new RegExp(`\\s*${TAG.source}\\s*`, "gu");
+function hasVoiceTags(text) {
+  return TAG.test(text);
+}
+function stripVoiceTags(text) {
+  return text.replace(TAG_WITH_SPACE, (match, offset, whole) => {
+    const before = whole.slice(0, offset);
+    const after = whole.slice(offset + match.length);
+    if (!before || !after || /^[,.!?;:…]/u.test(after) || /["'(“‘«]$/u.test(before)) {
+      return "";
+    }
+    return " ";
+  }).trim();
+}
+
 // src/validate.ts
 import { existsSync as existsSync5, readFileSync as readFileSync7 } from "fs";
 import { resolve as resolve3 } from "path";
@@ -24950,6 +24972,12 @@ function sceneProblems(scene, opts = {}) {
     } else {
       seen.set(beat.id, b);
     }
+    if (hasVoiceTags(beat.say) && !stripVoiceTags(beat.say)) {
+      problems.push({
+        path: `beats[${b}].say`,
+        message: "has only voice tags like [excited]; add words to say"
+      });
+    }
   });
   if (opts.untrusted || scene.untrusted) problems.push(...untrustedProblems(scene, opts));
   return problems;
@@ -25012,7 +25040,7 @@ function buildVtt(beats, durations, leadInSec = 0) {
     const start = t;
     const end = t + (durations[beat.id] ?? 0);
     t = end;
-    lines.push(beat.id, `${timestamp(start)} --> ${timestamp(end)}`, beat.say.trim(), "");
+    lines.push(beat.id, `${timestamp(start)} --> ${timestamp(end)}`, stripVoiceTags(beat.say), "");
   }
   return `${lines.join("\n")}
 `;
@@ -25139,7 +25167,8 @@ ${formatProblems(problems)}`
     const durations = {};
     const wavs = [];
     for (const [i, beat] of scene.beats.entries()) {
-      const res = await provider.synth(beat.say, { voice: beat.voice });
+      const text = provider.voiceTags ? beat.say : stripVoiceTags(beat.say);
+      const res = await provider.synth(text, { voice: beat.voice });
       const wavPath = join6(audioDir, `beat-${String(i + 1).padStart(3, "0")}.wav`);
       normalizeToWav(res.audio, wavPath);
       const beatVolume = requireAudio ? meanVolume(wavPath) : null;

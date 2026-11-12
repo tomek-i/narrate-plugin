@@ -101,19 +101,28 @@ node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" <command> …
 
 (In the source monorepo you can instead use `pnpm narrate …`.)
 
-Commands: `validate --scene <file> [--json] [--untrusted] [--site <url>] [--allow-origin <url...>]` (check a scene without
-rendering; exit 0/1, with a path per problem), `init` (scaffold the project override file `.narrate/settings.local.json`;
-settings + keys normally come from the global `~/.narrate/settings.json`),
-`check` (validate ffmpeg + config; exit 0/1), `render --scene <file> [--out <dir>]
-[--provider <p>] [--voice <v>] [--same-origin] [--untrusted] [--no-env] [--storage-state <file>] [--site <url>] [--allow-origin <url…>] [--json] [--log <file>]`
-(`--json` prints one result object on stdout — `ok`, absolute `video`/`captions`/`log`
-paths, `audio` check, or on failure `stage` + `error`; see docs/usage.md), `auth <login-url> [--out <file>]` (log in once and
-save a session for authenticated scenes — see below), and `setup` (force-install
-Playwright + Chromium; normally automatic; also writes the stable launchers in
-`~/.narrate/bin`). Outside Claude Code (scripts, CI on a machine with the plugin),
-call `node ~/.narrate/bin/narrate.mjs <command>`, never the versioned cache path:
-the launcher runs the installed plugin version. TTS provider/key onboarding lives in the
-**`/narrate-setup`** skill.
+Commands:
+
+- `init`: scaffold the project override file `.narrate/settings.local.json`
+  (settings and keys normally come from the global `~/.narrate/settings.json`).
+- `check`: check ffmpeg and the config; exit 0/1.
+- `validate --scene <file> [--json] [--untrusted] [--site <url>] [--allow-origin <url…>]`:
+  check a scene without rendering (no browser, voice or network); exit 0/1, with
+  a JSON path per problem. Unknown keys are problems too.
+- `render --scene <file> [--out <dir>] [--json] [--log <file>] [--provider <p>] [--voice <v>]
+  [--same-origin] [--untrusted] [--no-env] [--storage-state <file>] [--site <url>] [--allow-origin <url…>]`.
+  With `--json` it prints one result object on stdout: on success `ok`, absolute
+  `video` / `captions` / `log` paths and the `audio` check; on failure `stage`
+  (`validate` | `setup` | `tts` | `record` | `mux`), `error` and `log`.
+- `auth <login-url> [--out <file>]`: log in once and save a session for
+  authenticated scenes (see above).
+- `setup`: install Playwright (normally automatic on first render) and write the
+  stable launchers in `~/.narrate/bin`.
+
+Outside Claude Code (scripts, CI on a machine with the plugin), call
+`node ~/.narrate/bin/narrate.mjs <command>`, never the versioned cache path: the
+launcher runs the installed plugin version. TTS provider/key onboarding lives in
+the **`/narrate-setup`** skill.
 
 ## Prerequisites
 
@@ -171,22 +180,26 @@ the launcher runs the installed plugin version. TTS provider/key onboarding live
    browser or voice; fix every reported `path` before rendering:
    ```bash
    node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" validate --scene ./.narrate/tmp/<slug>.scene.json
-   node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" render \
+   node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" render --json \
      --scene ./.narrate/tmp/<slug>.scene.json --out ./.narrate/tmp
    ```
+   Read the JSON line on stdout (progress is on stderr). If `ok` is false, fix
+   what `stage` and `error` point at (`validate`: the scene; `setup`: ffmpeg or
+   the browser; `tts`: the key or voice; `record`: the app or a selector — the
+   `log` file has the details) and re-render.
 6. **Deliver**: copy `./.narrate/tmp/<slug>.mp4` → `./docs/<slug>.mp4`, ensure
    `.narrate/` is in the project `.gitignore`, and stop the dev server. Deliver any
    sidecars produced alongside the video too: `<slug>.vtt` (captions, if
    `output.vtt` is on), `<slug>.scene.json` (if `output.keepScene` is on), and the
    `<slug>.tasks.md` task list you authored for an evaluative walkthrough — copy
    each to `./docs/` next to the mp4.
-7. **Report audio + artifacts, then clean up.** Read `./.narrate/tmp/narrate.log`
-   and quote its **"Final audio"** line (stream present? mean volume in dB) so the
-   user can verify the muxed audio is real. List every delivered file (video, and
-   any captions / scene / task list). If the log reports the stream MISSING or
-   silent, surface that and keep `./.narrate/tmp` for debugging; otherwise **delete
-   `./.narrate/tmp`** automatically — the deliverables live under `./docs/`. Report
-   those paths. (Note: VS Code's built-in preview can't decode the audio — verify in
+7. **Report audio + artifacts, then clean up.** Quote the result's `audio`
+   (stream present? mean volume in dB) so the user can verify the narration is
+   real. (With `--json`, a silent or missing audio track already fails the render,
+   except with the silent `mock` voice.) List every delivered file (video, and any
+   captions / scene / task list). If something looks wrong, keep `./.narrate/tmp`
+   (it has `narrate.log`) for debugging; otherwise **delete `./.narrate/tmp`**
+   automatically — the deliverables live under `./docs/`. Report those paths. (Note: VS Code's built-in preview can't decode the audio — verify in
    VLC or a browser.)
 
 ## Scene format
@@ -214,12 +227,20 @@ the launcher runs the installed plugin version. TTS provider/key onboarding live
 }
 ```
 
+**Voice tags:** cues in square brackets in `say`, like `[excited]`, `[whispers]`
+or `[short pause]` (always lowercase), make the narration more expressive with
+Gemini (results vary by tag) or an ElevenLabs v3 model (`tts.elevenlabs.model:
+"eleven_v3"`). Other voices get the text without them, and captions never show
+them. Use them sparingly (a cue at the start of a beat, or before a key point).
+Capitalized brackets like `[Enter]` or `[Save]` aren't tags and are spoken.
+
 Use `focus` to spotlight whatever the narration is talking about — it highlights
 for the beat's whole duration and clears automatically. The synthetic cursor and
 highlights are injected into the page (never the OS cursor) and are on by default;
 they're configurable under `overlay` in settings.
 
-For editor autocomplete, add the hosted schema (the engine ignores unknown keys):
+Beat ids must be unique. For editor autocomplete, add the hosted schema
+(`render` ignores unknown keys; `validate` reports them, so run it to catch typos):
 `"$schema": "https://raw.githubusercontent.com/tomek-i/narrate-plugin/main/narrate.scene.schema.json"`.
 
 ## Step vocabulary (the `do` array)
