@@ -24307,7 +24307,7 @@ async function captureAuth(opts) {
 // src/pipeline.ts
 import { copyFileSync, existsSync as existsSync5, mkdirSync as mkdirSync3, rmSync as rmSync3, writeFileSync as writeFileSync4 } from "fs";
 import { join as join5, resolve as resolve4 } from "path";
-import { pathToFileURL as pathToFileURL2 } from "url";
+import { pathToFileURL as pathToFileURL3 } from "url";
 
 // src/tts/elevenlabs.ts
 var DEFAULT_MODEL = "eleven_multilingual_v2";
@@ -24557,6 +24557,7 @@ function makeProvider(config2, settingsFiles) {
 // src/validate.ts
 import { existsSync as existsSync4, readFileSync as readFileSync6 } from "fs";
 import { resolve as resolve3 } from "path";
+import { pathToFileURL as pathToFileURL2 } from "url";
 function safeOrigin(url2) {
   try {
     return originOf(url2);
@@ -24622,6 +24623,27 @@ function untrustedProblems(scene, opts = {}) {
   });
   return problems;
 }
+function allowedOriginProblems(origins = []) {
+  return origins.filter((o) => safeOrigin(o) === null).map((o) => ({
+    path: "--allow-origin",
+    message: `expects a URL such as http://localhost:3000, got "${o}"`
+  }));
+}
+function unknownKeyProblems(raw, parsed, path = "") {
+  if (Array.isArray(raw) && Array.isArray(parsed)) {
+    return raw.flatMap((item, i) => unknownKeyProblems(item, parsed[i], `${path}[${i}]`));
+  }
+  if (!isRecord(raw) || !isRecord(parsed)) return [];
+  return Object.keys(raw).flatMap((key) => {
+    const at = path ? `${path}.${key}` : key;
+    if (key in parsed) return unknownKeyProblems(raw[key], parsed[key], at);
+    if (!path && key === "$schema") return [];
+    return [{ path: at, message: `unknown key "${key}"` }];
+  });
+}
+function isRecord(v) {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
 function schemaProblems(error62) {
   return error62.issues.map((issue2) => ({
     path: formatPath(issue2.path),
@@ -24646,10 +24668,10 @@ function sceneProblems(scene, opts = {}) {
   return problems;
 }
 function validateSceneFile(cwd, file2, opts = {}) {
-  const result = (problems) => ({
-    ok: problems.length === 0,
+  const result = (problems2) => ({
+    ok: problems2.length === 0,
     schemaVersion: SCENE_SCHEMA_VERSION,
-    problems
+    problems: problems2
   });
   const p = resolve3(cwd, file2);
   if (!existsSync4(p)) return result([{ path: "", message: `scene file not found: ${p}` }]);
@@ -24663,7 +24685,25 @@ function validateSceneFile(cwd, file2, opts = {}) {
   }
   const parsed = SceneSchema.safeParse(raw);
   if (!parsed.success) return result(schemaProblems(parsed.error));
-  return result(sceneProblems(resolveSceneSite(parsed.data, p), opts));
+  const scene = parsed.data;
+  const problems = [
+    ...unknownKeyProblems(raw, scene),
+    ...allowedOriginProblems(opts.allowedOrigins)
+  ];
+  if (opts.site) {
+    scene.site = /^(https?|file):\/\//i.test(opts.site) ? opts.site : pathToFileURL2(resolve3(cwd, opts.site)).href;
+  } else {
+    resolveSceneSite(scene, p);
+  }
+  problems.push(...sceneProblems(scene, opts));
+  const state = scene.auth?.storageState;
+  if (state && !opts.untrusted && !scene.untrusted && !existsSync4(resolve3(cwd, state))) {
+    problems.push({
+      path: "auth.storageState",
+      message: `saved session not found: ${resolve3(cwd, state)} (capture it with \`narrate auth <login-url> --out ${state}\`)`
+    });
+  }
+  return result(problems);
 }
 function formatProblems(problems) {
   return problems.map((p) => `  ${p.path}: ${p.message}`).join("\n");
@@ -24694,7 +24734,7 @@ function buildVtt(beats, durations, leadInSec = 0) {
 // src/pipeline.ts
 function resolveSite(site, cwd) {
   if (/^(https?|file):\/\//i.test(site)) return site;
-  return pathToFileURL2(resolve4(cwd, site)).href;
+  return pathToFileURL3(resolve4(cwd, site)).href;
 }
 async function render(scene, config2, opts) {
   const logLines = [];
@@ -24903,15 +24943,8 @@ program2.command("render").description("TTS \u2192 record \u2192 mux into one na
   const scene = loadScene(cwd, o.scene);
   if (o.sameOrigin) scene.allowedOrigins = [];
   if (o.site) scene.site = o.site;
-  for (const origin of o.allowOrigin ?? []) {
-    try {
-      new URL(origin);
-    } catch {
-      throw new Error(
-        `--allow-origin expects a URL such as http://localhost:3000, got "${origin}"`
-      );
-    }
-  }
+  const [badOrigin] = allowedOriginProblems(o.allowOrigin);
+  if (badOrigin) throw new Error(`--allow-origin ${badOrigin.message}`);
   const out = await render(scene, config2, {
     cwd,
     scenePath: o.scene,
@@ -24927,21 +24960,24 @@ program2.command("render").description("TTS \u2192 record \u2192 mux into one na
 });
 program2.command("validate").description(
   "Check a scene against the schema and render's own checks, without a browser, ffmpeg, TTS or network. Exits 1 if invalid."
-).requiredOption("-s, --scene <file>", "scene JSON file").option("--untrusted", "also apply the --untrusted rules (as render --untrusted would)").option("--allow-origin <url...>", "origins the caller allows, as with render --allow-origin").option("--json", "print one JSON object: { ok, schemaVersion, problems: [{ path, message }] }").action((o) => {
-  const result = validateSceneFile(process.cwd(), o.scene, {
-    untrusted: o.untrusted,
-    allowedOrigins: o.allowOrigin
-  });
-  if (o.json) {
-    console.log(JSON.stringify(result));
-  } else if (result.ok) {
-    console.log(`\u2705 Scene OK: ${o.scene} (schema version ${result.schemaVersion})`);
-  } else {
-    console.log(`\u274C Invalid scene: ${o.scene}
+).requiredOption("-s, --scene <file>", "scene JSON file").option("--untrusted", "also apply the --untrusted rules (as render --untrusted would)").option("--allow-origin <url...>", "origins the caller allows, as with render --allow-origin").option("--site <url>", "check against this site instead of the scene's, as with render --site").option("--json", "print one JSON object: { ok, schemaVersion, problems: [{ path, message }] }").action(
+  (o) => {
+    const result = validateSceneFile(process.cwd(), o.scene, {
+      untrusted: o.untrusted,
+      allowedOrigins: o.allowOrigin,
+      site: o.site
+    });
+    if (o.json) {
+      console.log(JSON.stringify(result));
+    } else if (result.ok) {
+      console.log(`\u2705 Scene OK: ${o.scene} (schema version ${result.schemaVersion})`);
+    } else {
+      console.log(`\u274C Invalid scene: ${o.scene}
 ${formatProblems(result.problems)}`);
+    }
+    if (!result.ok) process.exitCode = 1;
   }
-  if (!result.ok) process.exitCode = 1;
-});
+);
 program2.command("init").description(
   "Scaffold .narrate/settings.local.json (project overrides) in the current project, or ~/.narrate/settings.json with --global."
 ).option("-g, --global", "scaffold the user-wide settings file instead").action((o) => {

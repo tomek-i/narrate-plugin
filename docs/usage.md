@@ -84,6 +84,7 @@ Flags (`render`):
 narrate validate --scene scene.json            # exit 0 = valid, 1 = invalid (one line per problem)
 narrate validate --scene scene.json --json     # machine-readable
 narrate validate --scene scene.json --untrusted  # also apply the --untrusted rules (add --allow-origin as for render)
+narrate validate --scene scene.json --untrusted --site http://localhost:3000  # check against the site render will pin
 ```
 
 `validate` runs the same checks `render` does before it starts (JSON syntax, the
@@ -91,6 +92,20 @@ scene schema, unique beat ids, and the `--untrusted` rules when asked for or set
 in the scene), without a browser, ffmpeg, a TTS voice or any network access. Use
 it to check a generated scene before spending time and TTS credits on a render,
 or in a generator's tests to catch drift from narrate's schema.
+
+It is stricter than `render` in two ways, both to catch mistakes early:
+
+- Unknown keys are problems (`render` ignores them), so a typo such as
+  `untrused` or a renamed field is reported instead of silently doing nothing.
+  A top-level `$schema` is allowed.
+- The scene's `auth.storageState` file must exist (relative to the current
+  directory, as for `render`). Not checked in untrusted mode, which ignores it.
+
+Pass the same `--site` and `--allow-origin` you will pass to `render`, so the
+untrusted rules are checked against the site that will actually be recorded.
+
+Duplicate beat ids are rejected by `render` too: each beat's audio and timing is
+keyed by its id, so a duplicate used to give wrong timing and captions.
 
 With `--json` it prints exactly one JSON object to stdout:
 
@@ -103,8 +118,11 @@ With `--json` it prints exactly one JSON object to stdout:
   changes (a field removed or its meaning changed), not when optional fields are
   added, so a caller can refuse to run against a version it doesn't know.
 - `problems`: one entry per problem. `path` is a JSON path into the scene (`""`
-  for the file as a whole, e.g. invalid JSON); `message` is human-readable and
-  may change between versions.
+  for the file as a whole, e.g. invalid JSON; `--allow-origin` for a bad flag
+  value); `message` is human-readable and may change between versions.
+
+A usage error (e.g. `--scene` missing) is reported by the argument parser as
+plain text on stderr, with nothing on stdout and exit code 1.
 
 Keyless smoke test (silent narration, exercises the whole pipeline):
 

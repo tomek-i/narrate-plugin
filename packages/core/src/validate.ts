@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import type { z } from "zod";
 import { formatPath, resolveSceneSite } from "./config.js";
 import { originOf } from "./record/origin-guard.js";
@@ -99,6 +100,41 @@ export function untrustedProblems(
   return problems;
 }
 
+/**
+ * `--allow-origin` values that aren't absolute URLs. `render` refuses them, so
+ * `validate` reports them instead of quietly ignoring them.
+ */
+export function allowedOriginProblems(origins: string[] = []): Problem[] {
+  return origins
+    .filter((o) => safeOrigin(o) === null)
+    .map((o) => ({
+      path: "--allow-origin",
+      message: `expects a URL such as http://localhost:3000, got "${o}"`,
+    }));
+}
+
+/**
+ * Keys in the raw scene that the schema doesn't know (the parsed scene dropped
+ * them): a typo like `untrused` would otherwise silently turn a setting off.
+ * `$schema` at the top level is allowed for editor support.
+ */
+export function unknownKeyProblems(raw: unknown, parsed: unknown, path = ""): Problem[] {
+  if (Array.isArray(raw) && Array.isArray(parsed)) {
+    return raw.flatMap((item, i) => unknownKeyProblems(item, parsed[i], `${path}[${i}]`));
+  }
+  if (!isRecord(raw) || !isRecord(parsed)) return [];
+  return Object.keys(raw).flatMap((key) => {
+    const at = path ? `${path}.${key}` : key;
+    if (key in parsed) return unknownKeyProblems(raw[key], parsed[key], at);
+    if (!path && key === "$schema") return [];
+    return [{ path: at, message: `unknown key "${key}"` }];
+  });
+}
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
 /** Schema errors as problems, one per zod issue. */
 export function schemaProblems(error: z.ZodError): Problem[] {
   return error.issues.map((issue) => ({
@@ -142,12 +178,14 @@ export interface ValidationResult {
 
 /**
  * Validate a scene file the way `render` would, without a browser, ffmpeg, TTS
- * or any network access: JSON syntax, the scene schema, then `sceneProblems`.
+ * or any network access: JSON syntax, the scene schema (and unknown keys), then
+ * `sceneProblems`, plus that the scene's saved session file exists. `site`
+ * overrides the scene's site like `render --site` (relative to `cwd`).
  */
 export function validateSceneFile(
   cwd: string,
   file: string,
-  opts: { untrusted?: boolean; allowedOrigins?: string[] } = {},
+  opts: { untrusted?: boolean; allowedOrigins?: string[]; site?: string } = {},
 ): ValidationResult {
   const result = (problems: Problem[]): ValidationResult => ({
     ok: problems.length === 0,
@@ -166,7 +204,29 @@ export function validateSceneFile(
   }
   const parsed = SceneSchema.safeParse(raw);
   if (!parsed.success) return result(schemaProblems(parsed.error));
-  return result(sceneProblems(resolveSceneSite(parsed.data, p), opts));
+  const scene = parsed.data;
+  const problems = [
+    ...unknownKeyProblems(raw, scene),
+    ...allowedOriginProblems(opts.allowedOrigins),
+  ];
+  if (opts.site) {
+    scene.site = /^(https?|file):\/\//i.test(opts.site)
+      ? opts.site
+      : pathToFileURL(resolve(cwd, opts.site)).href;
+  } else {
+    resolveSceneSite(scene, p);
+  }
+  problems.push(...sceneProblems(scene, opts));
+  // render checks this too, but only after TTS has been paid for. Untrusted
+  // mode ignores the scene's auth, so there's nothing to check then.
+  const state = scene.auth?.storageState;
+  if (state && !opts.untrusted && !scene.untrusted && !existsSync(resolve(cwd, state))) {
+    problems.push({
+      path: "auth.storageState",
+      message: `saved session not found: ${resolve(cwd, state)} (capture it with \`narrate auth <login-url> --out ${state}\`)`,
+    });
+  }
+  return result(problems);
 }
 
 /** Format problems as one indented line each, for an error message. */

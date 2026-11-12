@@ -101,7 +101,7 @@ node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" <command> …
 
 (In the source monorepo you can instead use `pnpm narrate …`.)
 
-Commands: `validate --scene <file> [--json] [--untrusted]` (check a scene without
+Commands: `validate --scene <file> [--json] [--untrusted] [--site <url>] [--allow-origin <url...>]` (check a scene without
 rendering; exit 0/1, with a path per problem), `init` (scaffold the project override file `.narrate/settings.local.json`;
 settings + keys normally come from the global `~/.narrate/settings.json`),
 `check` (validate ffmpeg + config; exit 0/1), `render --scene <file> [--out <dir>]

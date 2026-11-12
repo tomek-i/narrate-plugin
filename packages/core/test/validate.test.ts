@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { after, test } from "node:test";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { SCENE_SCHEMA_VERSION } from "../src/types.js";
 import { validateSceneFile } from "../src/validate.js";
 import { tempDir } from "./helpers.js";
@@ -65,6 +65,27 @@ const invalid: Array<[string, unknown, string[]]> = [
     },
     ["beats[0].do[0]"],
   ],
+  [
+    "unknown keys (typos)",
+    {
+      site: "x",
+      untrused: true,
+      beats: [
+        {
+          id: "a",
+          say: "x",
+          focusLable: "y",
+          do: [{ action: "click", selector: "#a", selectr: "#b" }],
+        },
+      ],
+    },
+    ["untrused", "beats[0].focusLable", "beats[0].do[0].selectr"],
+  ],
+  [
+    "a saved session that doesn't exist",
+    { site: "x", auth: { storageState: "missing-auth.json" }, beats: [{ id: "a", say: "x" }] },
+    ["auth.storageState"],
+  ],
 ];
 
 for (const [name, content, paths] of invalid) {
@@ -86,6 +107,29 @@ test("--untrusted applies the safe-mode rules to any scene", () => {
   });
   assert.equal(validateSceneFile(tmp.dir, file).ok, true);
   assert.equal(validateSceneFile(tmp.dir, file, { untrusted: true }).ok, false);
+});
+
+test("--site replaces the scene's site, as render --site does", () => {
+  const file = sceneFile("site.json", {
+    site: "http://a.test",
+    beats: [{ id: "a", say: "x", do: [{ action: "navigate", url: "http://a.test/p" }] }],
+  });
+  assert.equal(validateSceneFile(tmp.dir, file, { untrusted: true }).ok, true);
+  const moved = validateSceneFile(tmp.dir, file, { untrusted: true, site: "http://b.test" });
+  assert.deepEqual(
+    moved.problems.map((p) => p.path),
+    ["beats[0].do[0].url"],
+  );
+});
+
+test("a bad --allow-origin is a problem, not silently dropped", () => {
+  const r = validateSceneFile(tmp.dir, sceneFile("origin.json", valid), {
+    allowedOrigins: ["notaurl"],
+  });
+  assert.deepEqual(
+    r.problems.map((p) => p.path),
+    ["--allow-origin"],
+  );
 });
 
 // The CLI: exit codes and the --json contract. Runs the TypeScript source
@@ -119,4 +163,32 @@ test("narrate validate exits 0 for a valid scene and 1 with --json problems othe
   const text = runCli("--scene", sceneFile("cli-bad2.json", { site: "x", beats: [] }));
   assert.equal(text.status, 1);
   assert.match(text.stdout, /Invalid scene/);
+});
+
+test("narrate validate needs neither Playwright nor anything on PATH", () => {
+  // Fails any attempt to load Playwright; PATH is emptied so ffmpeg can't run.
+  const hooks = join(tmp.dir, "block-hooks.mjs");
+  writeFileSync(
+    hooks,
+    `export async function resolve(spec, ctx, next) {
+  if (spec.split("/")[0].startsWith("playwright")) throw new Error("playwright was loaded");
+  return next(spec, ctx);
+}`,
+  );
+  const register = join(tmp.dir, "block.mjs");
+  writeFileSync(
+    register,
+    `import { register } from "node:module";\nregister(${JSON.stringify(pathToFileURL(hooks).href)});`,
+  );
+  const r = spawnSync(
+    process.execPath,
+    ["--import", pathToFileURL(register).href, "--import", tsx, cli, "validate"].concat([
+      "--scene",
+      sceneFile("isolated.json", valid),
+      "--json",
+    ]),
+    { encoding: "utf8", cwd: tmp.dir, env: { ...process.env, PATH: "", Path: "" } },
+  );
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(JSON.parse(r.stdout).ok, true);
 });
