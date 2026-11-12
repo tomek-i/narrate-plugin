@@ -54,6 +54,29 @@ node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" render --scene scene.json
 pnpm narrate render --scene packages/plugin/examples/demo.scene.json
 ```
 
+### Running the CLI outside Claude Code
+
+The plugin's CLI lives at
+`~/.claude/plugins/cache/<marketplace>/narrate/<version>/bin/narrate.mjs`. The
+version is part of that path, so don't call it directly from scripts. Use the
+launchers in `~/.narrate/bin` instead (`$NARRATE_HOME/bin` if you set
+`NARRATE_HOME`):
+
+```bash
+node ~/.narrate/bin/narrate.mjs render --scene scene.json
+~/.narrate/bin/narrate render --scene scene.json        # macOS/Linux (sh)
+%USERPROFILE%\.narrate\bin\narrate.cmd render --scene scene.json   # Windows
+```
+
+Add `~/.narrate/bin` to your `PATH` to run plain `narrate`.
+
+The launchers forward to the installed plugin's CLI. Every time the plugin's CLI
+runs (any narrate skill, or any command), it points them at itself, so after a
+plugin update they switch to the new version the first time it runs. To create
+or refresh them by hand, run `setup` with the plugin's CLI:
+`node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" setup`. If the version they point
+at has been removed, they say so and exit 1.
+
 Settings are global with per-project overrides (see
 [configuration.md](./configuration.md)). `set-key` stores an API key in your
 global `~/.narrate/settings.json` and switches the active provider (add

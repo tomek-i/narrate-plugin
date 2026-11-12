@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 import { mkdirSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { Command } from "commander";
 import { captureAuth } from "./auth.js";
 import { loadConfig, loadConfigLayers, loadScene, settingsFilesChecked } from "./config.js";
+import { launcherDir, refreshLaunchers, runningBundle, writeLaunchers } from "./launcher.js";
 import { RenderError, type RenderResult, renderScene } from "./pipeline.js";
 import { checkEnv, initProject, setKey, setVoice } from "./project.js";
 import { readSecret } from "./secret.js";
@@ -279,10 +280,25 @@ program
 
 program
   .command("setup")
-  .description("Install Playwright + the Chromium browser (run once after install).")
+  .description(
+    "Install Playwright, and write the stable launchers in ~/.narrate/bin that run this version.",
+  )
   .action(async () => {
     await setup((m) => console.log(m));
+    const bundle = runningBundle();
+    if (!bundle) {
+      console.log("Running from source: no launchers written (they need the built CLI).");
+      return;
+    }
+    writeLaunchers(bundle);
+    const dir = launcherDir();
+    console.log(`Launchers in ${dir} now run ${bundle}:`);
+    console.log(`  node "${join(dir, "narrate.mjs")}" <command>`);
+    console.log(`  Add ${dir} to your PATH to run plain \`narrate <command>\`.`);
   });
+
+// Keep ~/.narrate/bin pointing at the installed plugin's current version.
+refreshLaunchers();
 
 program.parseAsync().catch((err) => {
   console.error(`\n❌ ${err instanceof Error ? err.message : err}`);
