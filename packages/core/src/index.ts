@@ -1,4 +1,11 @@
-export { render, type RenderOptions } from "./pipeline.js";
+export {
+  RenderError,
+  type RenderOptions,
+  type RenderResult,
+  type RenderStage,
+  render,
+  renderScene,
+} from "./pipeline.js";
 export {
   loadConfig,
   loadConfigLayers,

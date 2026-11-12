@@ -30,7 +30,8 @@ export function packageVersion(): string {
 function npm(args: string[], cwd: string, extraEnv: NodeJS.ProcessEnv = {}): void {
   execFileSync(isWin ? "npm.cmd" : "npm", args, {
     cwd,
-    stdio: "inherit",
+    // Progress goes to stderr, so `render --json` keeps stdout to its JSON result.
+    stdio: ["ignore", 2, 2],
     shell: isWin,
     env: { ...process.env, ...extraEnv },
   });
@@ -67,7 +68,10 @@ export function installChromium(log: (msg: string) => void = console.log): void 
   const cli = join(root, "node_modules", "playwright", "cli.js");
   log("Downloading the Chromium browser…");
   if (existsSync(cli)) {
-    execFileSync(process.execPath, [cli, "install", "chromium"], { cwd: root, stdio: "inherit" });
+    execFileSync(process.execPath, [cli, "install", "chromium"], {
+      cwd: root,
+      stdio: ["ignore", 2, 2],
+    });
   } else {
     // Fallback if the package layout differs.
     npm(["exec", "--", "playwright", "install", "chromium"], root);
