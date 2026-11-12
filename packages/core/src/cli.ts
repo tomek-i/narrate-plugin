@@ -4,7 +4,7 @@ import { dirname, join, resolve } from "node:path";
 import { Command } from "commander";
 import { captureAuth } from "./auth.js";
 import { loadConfig, loadConfigLayers, loadScene, settingsFilesChecked } from "./config.js";
-import { exitOnInterrupt, runCleanups } from "./interrupt.js";
+import { exitOnInterrupt, interrupted, runCleanups } from "./interrupt.js";
 import { launcherDir, refreshLaunchers, runningBundle, writeLaunchers } from "./launcher.js";
 import { RenderError, type RenderResult, renderScene } from "./pipeline.js";
 import { checkEnv, initProject, setKey, setVoice } from "./project.js";
@@ -57,12 +57,14 @@ program
   .option("--log <file>", "write the diagnostic log here (default: <out>/narrate.log)")
   .action(async (o: RenderFlags) => {
     // Progress and interrupt messages go to stderr with --json, like all other output.
-    exitOnInterrupt(o.json ? (m) => console.error(m) : (m) => console.log(m));
+    exitOnInterrupt((m) => console.error(m));
     if (!o.json) {
       try {
         const result = await renderCommand(o, (m) => console.log(m));
         console.log(`\n✅ Done → ${result.video}`);
       } catch (err) {
+        // Interrupted: the exit code says so; the teardown's errors aren't news.
+        if (interrupted()) return;
         // A RenderError has already been shown through the log; don't repeat it.
         if (!(err instanceof RenderError)) throw err;
         process.exitCode = 1;
@@ -74,6 +76,8 @@ program
       const result = await renderCommand(o, (m) => console.error(m));
       console.log(JSON.stringify({ ok: true, ...result }));
     } catch (err) {
+      // Interrupted: stdout stays empty and the exit code (130/143/129) says why.
+      if (interrupted()) return;
       console.log(
         JSON.stringify({
           ok: false,
@@ -312,6 +316,8 @@ program
 refreshLaunchers();
 
 program.parseAsync().catch(async (err) => {
+  // Interrupted: the pending exit (130/143/129) is already on its way.
+  if (interrupted()) return;
   console.error(`\n❌ ${err instanceof Error ? err.message : err}`);
   // Stop anything a failed command left running before exiting.
   await runCleanups((m) => console.error(m));

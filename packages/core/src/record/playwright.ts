@@ -2,7 +2,7 @@ import { rmSync } from "node:fs";
 import { join } from "node:path";
 import type { Browser, BrowserType, Page } from "playwright";
 import { interpolateEnv } from "../env.js";
-import { onInterrupt } from "../interrupt.js";
+import { interruptHandled, onInterrupt } from "../interrupt.js";
 import { installChromium } from "../setup.js";
 import type { Config, Durations, OverlayConfig, Scene, Step, WaitUntil } from "../types.js";
 import { OriginGuard, OriginGuardError } from "./origin-guard.js";
@@ -108,7 +108,9 @@ export class PlaywrightRecorder implements Recorder {
     const expandEnv = opts.expandEnv ?? true;
     const size = { width: scene.viewport.width, height: scene.viewport.height };
     const chromium = await loadChromium();
-    const browser = await launchBrowser(chromium, { handleSignals: false });
+    // When narrate's own interrupt handling is on, it closes the browser itself;
+    // otherwise (narrate used as a library) Playwright keeps doing it.
+    const browser = await launchBrowser(chromium, { handleSignals: !interruptHandled() });
     // On an interrupt, close the browser (and with it the video) before exiting.
     const offInterrupt = onInterrupt(() => browser.close());
     const context = await browser.newContext({

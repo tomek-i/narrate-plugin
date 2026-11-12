@@ -103,57 +103,103 @@ describe("an interrupted render", () => {
     tmp.cleanup();
   });
 
-  test("stops the browser, leaves no video and exits 143", { timeout: 120_000 }, async (t) => {
-    if (skip) return t.skip(skip);
-    const scene = join(tmp.dir, "slow.json");
-    writeFileSync(
-      scene,
-      JSON.stringify({
-        name: "slow",
-        site: site.url,
-        beats: [{ id: "a", say: "Hello.", do: [{ action: "wait", ms: 60_000 }] }],
-      }),
-    );
-    // Windows can't deliver SIGTERM to a process; it takes the IPC path instead.
+  /**
+   * Start a render, wait until `ready` matches one of its processes, interrupt
+   * it (SIGTERM on POSIX; the IPC path on Windows, which can't deliver SIGTERM),
+   * then check it exited 143 with an empty stdout and left nothing running.
+   */
+  async function interruptWhen(
+    name: string,
+    scene: object,
+    ready: (procs: Proc[]) => boolean,
+    extraArgs: string[] = [],
+  ) {
+    const file = join(tmp.dir, `${name}.json`);
+    writeFileSync(file, JSON.stringify({ name, site: site.url, ...scene }));
     const child = spawn(
       process.execPath,
-      ["--import", tsx, cli, "render", "--json", "--scene", scene, "--provider", "mock"],
+      [
+        "--import",
+        tsx,
+        cli,
+        "render",
+        "--json",
+        "--scene",
+        file,
+        "--provider",
+        "mock",
+        ...extraArgs,
+      ],
       { cwd: tmp.dir, stdio: ["ignore", "pipe", "pipe", "ipc"] },
     );
+    let stdout = "";
     let stderr = "";
+    child.stdout?.on("data", (d) => {
+      stdout += d;
+    });
     child.stderr?.on("data", (d) => {
       stderr += d;
     });
-    child.stdout?.resume();
     const closed = once(child, "close");
 
-    // Wait until the browser is up and recording.
     let started: Proc[] = [];
-    const deadline = Date.now() + 90_000;
+    const deadline = Date.now() + 150_000;
     while (Date.now() < deadline && child.exitCode === null) {
       started = descendants(child.pid ?? -1);
-      if (started.some(isBrowser)) break;
+      if (ready(started)) break;
       await new Promise((r) => setTimeout(r, 300));
     }
-    assert.ok(started.some(isBrowser), `the browser never started:\n${stderr}`);
+    assert.ok(ready(started), `never reached the point to interrupt:\n${stderr}`);
+    // Take the snapshot again just before interrupting, to include late starters.
+    started = descendants(child.pid ?? -1);
 
     if (process.platform === "win32") child.send({ type: "narrate:interrupt", signal: "SIGTERM" });
     else child.kill("SIGTERM");
     const [code] = (await closed) as [number | null];
     assert.equal(code, 143, stderr);
     assert.match(stderr, /Interrupted \(SIGTERM\)/);
+    assert.equal(stdout, "", "stdout must stay empty when interrupted");
+    assert.doesNotMatch(stderr, /Failed while/, "an interrupt isn't a render failure");
 
     // Everything it started must be gone (give the OS a moment to reap them).
-    const stillRunning = async () => started.filter((p) => alive(p.pid));
+    const stillRunning = () => started.filter((p) => alive(p.pid));
     const until = Date.now() + 10_000;
-    while ((await stillRunning()).length && Date.now() < until) {
+    while (stillRunning().length && Date.now() < until) {
       await new Promise((r) => setTimeout(r, 200));
     }
     assert.deepEqual(
-      (await stillRunning()).map((p) => `${p.pid} ${p.name}`),
+      stillRunning().map((p) => `${p.pid} ${p.name}`),
       [],
       "processes left running",
     );
-    assert.ok(!existsSync(join(tmp.dir, "out", "slow.mp4")), "a partial video was left behind");
+    const ext = extraArgs.includes("--config") ? "webm" : "mp4";
+    assert.ok(!existsSync(join(tmp.dir, "out", `${name}.${ext}`)), "a partial video was left");
+  }
+
+  test("while recording: stops the browser and exits 143", { timeout: 180_000 }, async (t) => {
+    if (skip) return t.skip(skip);
+    await interruptWhen(
+      "slow",
+      { beats: [{ id: "a", say: "Hello.", do: [{ action: "wait", ms: 60_000 }] }] },
+      (procs) => procs.some(isBrowser),
+    );
   });
+
+  test(
+    "while muxing: stops ffmpeg and removes the partial video",
+    { timeout: 240_000 },
+    async (t) => {
+      if (skip) return t.skip(skip);
+      // A ~15s webm (VP9 encodes slowly) gives a mux long enough to interrupt.
+      const config = join(tmp.dir, "webm.json");
+      writeFileSync(config, JSON.stringify({ output: { format: "webm" } }));
+      await interruptWhen(
+        "muxing",
+        { beats: [{ id: "a", say: Array(40).fill("word").join(" ") }] },
+        // The mux's own ffmpeg, not the recorder's (ffmpeg-win64, ffmpeg-linux, …).
+        (procs) => procs.some((p) => /^ffmpeg(\.exe)?$/i.test(p.name)),
+        ["--config", config],
+      );
+    },
+  );
 });

@@ -23188,35 +23188,67 @@ import { writeFileSync } from "fs";
 
 // src/interrupt.ts
 var cleanups = /* @__PURE__ */ new Set();
+var exitKills = /* @__PURE__ */ new Set();
+var installed = false;
+var stopping = false;
+var logTo = (m) => console.error(m);
 var CLEANUP_TIMEOUT_MS = 5e3;
 var EXIT_CODE = { SIGHUP: 129, SIGINT: 130, SIGTERM: 143 };
+function interrupted() {
+  return stopping;
+}
+function interruptHandled() {
+  return installed;
+}
 function onInterrupt(fn) {
+  if (stopping) {
+    void runOne(fn);
+    return () => {
+    };
+  }
   cleanups.add(fn);
   return () => {
     cleanups.delete(fn);
   };
 }
-async function runCleanups(log) {
-  const pending = [...cleanups].reverse();
-  cleanups.clear();
-  for (const fn of pending) {
-    let timer;
+function onExitKill(fn) {
+  exitKills.add(fn);
+  return () => {
+    exitKills.delete(fn);
+  };
+}
+process.on("exit", () => {
+  for (const kill of exitKills) {
     try {
-      await Promise.race([
-        Promise.resolve().then(fn),
-        new Promise((_, reject) => {
-          timer = setTimeout(() => reject(new Error("timed out")), CLEANUP_TIMEOUT_MS);
-        })
-      ]);
-    } catch (err) {
-      log(`\u26A0\uFE0F  Cleanup step failed: ${err instanceof Error ? err.message : err}`);
-    } finally {
-      clearTimeout(timer);
+      kill();
+    } catch {
     }
   }
+});
+async function runOne(fn) {
+  let timer;
+  try {
+    await Promise.race([
+      Promise.resolve().then(fn),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error("timed out")), CLEANUP_TIMEOUT_MS);
+      })
+    ]);
+  } catch (err) {
+    logTo(`\u26A0\uFE0F  Cleanup step failed: ${err instanceof Error ? err.message : err}`);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+async function runCleanups(log) {
+  logTo = log;
+  const pending = [...cleanups].reverse();
+  cleanups.clear();
+  for (const fn of pending) await runOne(fn);
 }
 function exitOnInterrupt(log) {
-  let stopping = false;
+  installed = true;
+  logTo = log;
   const stop = (signal) => {
     if (stopping) process.exit(EXIT_CODE[signal]);
     stopping = true;
@@ -23244,6 +23276,7 @@ function exitOnInterrupt(log) {
   process.on("unhandledRejection", onCrash);
   process.channel?.unref();
   return () => {
+    installed = false;
     for (const [signal, handler] of handlers) process.off(signal, handler);
     process.off("message", onMessage);
     process.off("uncaughtException", onCrash);
@@ -23352,11 +23385,16 @@ async function muxNarration(opts) {
   ];
   const command = `ffmpeg ${args.map((a) => /[\s;]/.test(a) ? `"${a}"` : a).join(" ")}`;
   const child = spawn("ffmpeg", args, { stdio: ["ignore", "ignore", "pipe"] });
+  const running = () => child.exitCode === null && child.signalCode === null;
+  const offExitKill = onExitKill(() => {
+    if (running()) killTree(child);
+  });
   const offInterrupt = onInterrupt(async () => {
-    if (child.exitCode !== null || child.signalCode !== null) return;
-    const closed = once(child, "close");
-    child.kill("SIGKILL");
-    await closed;
+    if (!running()) return;
+    const exited = once(child, "exit");
+    killTree(child);
+    child.stderr.destroy();
+    await exited;
   });
   let stderr = "";
   child.stderr.setEncoding("utf8");
@@ -23375,8 +23413,17 @@ ${tail}`);
     }
   } finally {
     offInterrupt();
+    offExitKill();
   }
   return { command, stderr };
+}
+function killTree(child) {
+  if (child.pid === void 0) return;
+  if (process.platform === "win32") {
+    spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore" });
+  } else {
+    child.kill("SIGKILL");
+  }
 }
 function meanVolume(file2) {
   const r = spawnSync("ffmpeg", ["-i", file2, "-af", "volumedetect", "-f", "null", "-"], {
@@ -24024,7 +24071,7 @@ var PlaywrightRecorder = class {
     const expandEnv = opts.expandEnv ?? true;
     const size = { width: scene.viewport.width, height: scene.viewport.height };
     const chromium = await loadChromium();
-    const browser = await launchBrowser(chromium, { handleSignals: false });
+    const browser = await launchBrowser(chromium, { handleSignals: !interruptHandled() });
     const offInterrupt = onInterrupt(() => browser.close());
     const context = await browser.newContext({
       viewport: size,
@@ -25027,6 +25074,7 @@ async function renderScene(scene, config2, opts) {
     const result = await run2();
     return { ...result, log: writeLog() };
   } catch (err) {
+    if (interrupted()) throw err;
     const message = err instanceof Error ? err.message : String(err);
     log(`\u274C Failed while ${STAGE_LABEL[stage]}: ${message}`);
     const logged = stage === "validate" && !opts.logFile ? null : writeLog();
@@ -25125,6 +25173,7 @@ ${formatProblems(problems)}`
     if (!videoPath) throw new Error("Recording produced no video file.");
     log(`Recorded video: ${videoPath} (lead-in ${(leadInMs / 1e3).toFixed(3)}s)`);
     stage = "mux";
+    if (interrupted()) throw new Error("interrupted");
     log("Muxing narration onto video\u2026");
     const narration = join6(outDir, "narration.wav");
     concatWavs(wavs, narration, join6(outDir, "audio.txt"));
@@ -25252,13 +25301,14 @@ program2.command("render").description("TTS \u2192 record \u2192 mux into one na
   "--storage-state <file>",
   "load this saved session (overrides the scene's auth.storageState; the only way under --untrusted)"
 ).option("--json", "print one JSON result object on stdout; all other output goes to stderr").option("--log <file>", "write the diagnostic log here (default: <out>/narrate.log)").action(async (o) => {
-  exitOnInterrupt(o.json ? (m) => console.error(m) : (m) => console.log(m));
+  exitOnInterrupt((m) => console.error(m));
   if (!o.json) {
     try {
       const result = await renderCommand(o, (m) => console.log(m));
       console.log(`
 \u2705 Done \u2192 ${result.video}`);
     } catch (err) {
+      if (interrupted()) return;
       if (!(err instanceof RenderError)) throw err;
       process.exitCode = 1;
     }
@@ -25268,6 +25318,7 @@ program2.command("render").description("TTS \u2192 record \u2192 mux into one na
     const result = await renderCommand(o, (m) => console.error(m));
     console.log(JSON.stringify({ ok: true, ...result }));
   } catch (err) {
+    if (interrupted()) return;
     console.log(
       JSON.stringify({
         ok: false,
@@ -25422,6 +25473,7 @@ program2.command("setup").description(
 });
 refreshLaunchers();
 program2.parseAsync().catch(async (err) => {
+  if (interrupted()) return;
   console.error(`
 \u274C ${err instanceof Error ? err.message : err}`);
   await runCleanups((m) => console.error(m));

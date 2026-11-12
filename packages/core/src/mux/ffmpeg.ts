@@ -1,7 +1,7 @@
-import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { type ChildProcess, execFileSync, spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import { writeFileSync } from "node:fs";
-import { onInterrupt } from "../interrupt.js";
+import { onExitKill, onInterrupt } from "../interrupt.js";
 
 const fwd = (p: string) => p.replace(/\\/g, "/");
 
@@ -140,12 +140,19 @@ export async function muxNarration(opts: {
   // Asynchronous, unlike the short ffmpeg calls: encoding can take minutes, and
   // an interrupt must be able to stop it (see interrupt.ts).
   const child = spawn("ffmpeg", args, { stdio: ["ignore", "ignore", "pipe"] });
+  const running = () => child.exitCode === null && child.signalCode === null;
+  // Whatever happens to this process, ffmpeg must not keep running after it.
+  const offExitKill = onExitKill(() => {
+    if (running()) killTree(child);
+  });
   const offInterrupt = onInterrupt(async () => {
-    if (child.exitCode !== null || child.signalCode !== null) return;
+    if (!running()) return;
     // Wait for it to exit, so the partial output file is no longer locked (Windows).
-    const closed = once(child, "close");
-    child.kill("SIGKILL");
-    await closed;
+    // "exit", not "close": a grandchild can hold the stderr pipe open.
+    const exited = once(child, "exit");
+    killTree(child);
+    child.stderr.destroy();
+    await exited;
   });
   let stderr = "";
   child.stderr.setEncoding("utf8");
@@ -163,8 +170,23 @@ export async function muxNarration(opts: {
     }
   } finally {
     offInterrupt();
+    offExitKill();
   }
   return { command, stderr };
+}
+
+/**
+ * Kill a child and everything it started. On Windows, `ffmpeg` on PATH is often
+ * a launcher shim (Chocolatey, Scoop) that runs the real ffmpeg as its own
+ * child, which killing the shim alone would leave running.
+ */
+function killTree(child: ChildProcess): void {
+  if (child.pid === undefined) return;
+  if (process.platform === "win32") {
+    spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore" });
+  } else {
+    child.kill("SIGKILL");
+  }
 }
 
 /** Mean volume of a file's audio in dB (e.g. "-23.3 dB"), or null if undetectable. */

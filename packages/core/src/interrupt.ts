@@ -16,6 +16,12 @@
 type Cleanup = () => void | Promise<void>;
 
 const cleanups = new Set<Cleanup>();
+/** Synchronous last-resort kills, run as the process exits however it exits. */
+const exitKills = new Set<() => void>();
+
+let installed = false;
+let stopping = false;
+let logTo: (msg: string) => void = (m) => console.error(m);
 
 /** How long one cleanup may take before it's abandoned (a wedged browser mustn't block exit). */
 const CLEANUP_TIMEOUT_MS = 5000;
@@ -23,42 +29,87 @@ const CLEANUP_TIMEOUT_MS = 5000;
 const EXIT_CODE = { SIGHUP: 129, SIGINT: 130, SIGTERM: 143 } as const;
 export type InterruptSignal = keyof typeof EXIT_CODE;
 
-/** Register a cleanup to run on interrupt; call the returned function once it's no longer needed. */
+/** True once an interrupt (or crash) is being handled: the work still running is being torn down. */
+export function interrupted(): boolean {
+  return stopping;
+}
+
+/** True when `exitOnInterrupt` handles signals (otherwise Playwright should handle its own). */
+export function interruptHandled(): boolean {
+  return installed;
+}
+
+/**
+ * Register a cleanup to run on interrupt; call the returned function once it's
+ * no longer needed. Registered while an interrupt is already being handled, it
+ * runs at once: the work that registered it must not outlive the exit.
+ */
 export function onInterrupt(fn: Cleanup): () => void {
+  if (stopping) {
+    void runOne(fn);
+    return () => {};
+  }
   cleanups.add(fn);
   return () => {
     cleanups.delete(fn);
   };
 }
 
-/** Run every registered cleanup, newest first, each with a time limit. */
-export async function runCleanups(log: (msg: string) => void): Promise<void> {
-  const pending = [...cleanups].reverse();
-  cleanups.clear();
-  for (const fn of pending) {
-    let timer: NodeJS.Timeout | undefined;
+/**
+ * Register a synchronous kill that runs when the process exits, also on a
+ * second, immediate interrupt that skips the cleanups. Call the returned
+ * function once the process it kills has ended.
+ */
+export function onExitKill(fn: () => void): () => void {
+  exitKills.add(fn);
+  return () => {
+    exitKills.delete(fn);
+  };
+}
+
+process.on("exit", () => {
+  for (const kill of exitKills) {
     try {
-      await Promise.race([
-        Promise.resolve().then(fn),
-        new Promise((_, reject) => {
-          timer = setTimeout(() => reject(new Error("timed out")), CLEANUP_TIMEOUT_MS);
-        }),
-      ]);
-    } catch (err) {
-      log(`⚠️  Cleanup step failed: ${err instanceof Error ? err.message : err}`);
-    } finally {
-      clearTimeout(timer);
+      kill();
+    } catch {
+      // Already gone: nothing to stop.
     }
   }
+});
+
+async function runOne(fn: Cleanup): Promise<void> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    await Promise.race([
+      Promise.resolve().then(fn),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error("timed out")), CLEANUP_TIMEOUT_MS);
+      }),
+    ]);
+  } catch (err) {
+    logTo(`⚠️  Cleanup step failed: ${err instanceof Error ? err.message : err}`);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Run every registered cleanup, newest first, each with a time limit. */
+export async function runCleanups(log: (msg: string) => void): Promise<void> {
+  logTo = log;
+  const pending = [...cleanups].reverse();
+  cleanups.clear();
+  for (const fn of pending) await runOne(fn);
 }
 
 /**
  * On SIGINT/SIGTERM/SIGHUP (or the IPC message), run the cleanups and exit with
- * 130/143/129. A second signal while cleaning up exits at once. Returns a
- * function that removes the handlers.
+ * 130/143/129. A second signal while cleaning up exits at once. Messages go to
+ * `log`, which should be stderr so `render --json` keeps stdout to its result.
+ * Returns a function that removes the handlers.
  */
 export function exitOnInterrupt(log: (msg: string) => void): () => void {
-  let stopping = false;
+  installed = true;
+  logTo = log;
   const stop = (signal: InterruptSignal) => {
     if (stopping) process.exit(EXIT_CODE[signal]);
     stopping = true;
@@ -86,6 +137,7 @@ export function exitOnInterrupt(log: (msg: string) => void): () => void {
   // Don't let the listener alone keep the process alive once the work is done.
   process.channel?.unref();
   return () => {
+    installed = false;
     for (const [signal, handler] of handlers) process.off(signal, handler);
     process.off("message", onMessage);
     process.off("uncaughtException", onCrash);
