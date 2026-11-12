@@ -23182,8 +23182,81 @@ function resolveApiKey(config2, settingsFiles) {
 }
 
 // src/mux/ffmpeg.ts
-import { execFileSync, spawnSync } from "child_process";
+import { execFileSync, spawn, spawnSync } from "child_process";
+import { once } from "events";
 import { writeFileSync } from "fs";
+
+// src/interrupt.ts
+var cleanups = /* @__PURE__ */ new Set();
+var CLEANUP_TIMEOUT_MS = 5e3;
+var EXIT_CODE = { SIGHUP: 129, SIGINT: 130, SIGTERM: 143 };
+function onInterrupt(fn) {
+  cleanups.add(fn);
+  return () => {
+    cleanups.delete(fn);
+  };
+}
+async function runCleanups(log) {
+  const pending = [...cleanups].reverse();
+  cleanups.clear();
+  for (const fn of pending) {
+    let timer;
+    try {
+      await Promise.race([
+        Promise.resolve().then(fn),
+        new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error("timed out")), CLEANUP_TIMEOUT_MS);
+        })
+      ]);
+    } catch (err) {
+      log(`\u26A0\uFE0F  Cleanup step failed: ${err instanceof Error ? err.message : err}`);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+}
+function exitOnInterrupt(log) {
+  let stopping = false;
+  const stop = (signal) => {
+    if (stopping) process.exit(EXIT_CODE[signal]);
+    stopping = true;
+    log(`
+\u23F9  Interrupted (${signal}): stopping the browser and ffmpeg\u2026`);
+    void runCleanups(log).finally(() => process.exit(EXIT_CODE[signal]));
+  };
+  const handlers = Object.keys(EXIT_CODE).map((signal) => {
+    const handler = () => stop(signal);
+    process.on(signal, handler);
+    return [signal, handler];
+  });
+  const onMessage = (m) => {
+    if (isInterruptMessage(m)) stop(m.signal ?? "SIGTERM");
+  };
+  process.on("message", onMessage);
+  const onCrash = (err) => {
+    if (stopping) return;
+    stopping = true;
+    log(`
+\u274C Unexpected error: ${err instanceof Error ? err.stack ?? err.message : err}`);
+    void runCleanups(log).finally(() => process.exit(1));
+  };
+  process.on("uncaughtException", onCrash);
+  process.on("unhandledRejection", onCrash);
+  process.channel?.unref();
+  return () => {
+    for (const [signal, handler] of handlers) process.off(signal, handler);
+    process.off("message", onMessage);
+    process.off("uncaughtException", onCrash);
+    process.off("unhandledRejection", onCrash);
+  };
+}
+function isInterruptMessage(m) {
+  if (typeof m !== "object" || m === null) return false;
+  const { type, signal } = m;
+  return type === "narrate:interrupt" && (signal === void 0 || typeof signal === "string" && signal in EXIT_CODE);
+}
+
+// src/mux/ffmpeg.ts
 var fwd = (p) => p.replace(/\\/g, "/");
 function ffmpegInstallHint() {
   switch (process.platform) {
@@ -23230,7 +23303,7 @@ function concatWavs(files, output2, listPath) {
     { stdio: "ignore" }
   );
 }
-function muxNarration(opts) {
+async function muxNarration(opts) {
   const { video, audio, leadInSec, fps, format, crf, output: output2 } = opts;
   const vcodec = format === "webm" ? ["libvpx-vp9", "-b:v", "0", "-crf", String(crf)] : (
     // Kill flat-dark-area flicker on screen content:
@@ -23278,13 +23351,32 @@ function muxNarration(opts) {
     output2
   ];
   const command = `ffmpeg ${args.map((a) => /[\s;]/.test(a) ? `"${a}"` : a).join(" ")}`;
-  const r = spawnSync("ffmpeg", args, { encoding: "utf8" });
-  if (r.status !== 0) {
-    const tail = (r.stderr ?? "").split("\n").slice(-25).join("\n");
-    throw new Error(`ffmpeg mux failed (exit ${r.status}):
+  const child = spawn("ffmpeg", args, { stdio: ["ignore", "ignore", "pipe"] });
+  const offInterrupt = onInterrupt(async () => {
+    if (child.exitCode !== null || child.signalCode !== null) return;
+    const closed = once(child, "close");
+    child.kill("SIGKILL");
+    await closed;
+  });
+  let stderr = "";
+  child.stderr.setEncoding("utf8");
+  child.stderr.on("data", (d) => {
+    stderr += d;
+  });
+  try {
+    const status = await new Promise((resolve6, reject) => {
+      child.once("error", reject);
+      child.once("close", resolve6);
+    });
+    if (status !== 0) {
+      const tail = stderr.split("\n").slice(-25).join("\n");
+      throw new Error(`ffmpeg mux failed (exit ${status}):
 ${tail}`);
+    }
+  } finally {
+    offInterrupt();
   }
-  return { command, stderr: r.stderr ?? "" };
+  return { command, stderr };
 }
 function meanVolume(file2) {
   const r = spawnSync("ffmpeg", ["-i", file2, "-af", "volumedetect", "-f", "null", "-"], {
@@ -23880,7 +23972,13 @@ var OVERLAY_SCRIPT = String.raw`
 
 // src/record/playwright.ts
 async function launchBrowser(chromium, opts = {}) {
-  const headless = !opts.headed;
+  const signals = opts.handleSignals ?? true;
+  const base = {
+    headless: !opts.headed,
+    handleSIGINT: signals,
+    handleSIGTERM: signals,
+    handleSIGHUP: signals
+  };
   const attempts = [
     {},
     // Playwright's Chromium, if already downloaded
@@ -23891,14 +23989,14 @@ async function launchBrowser(chromium, opts = {}) {
   let lastErr;
   for (const a of attempts) {
     try {
-      return await chromium.launch({ ...a, headless });
+      return await chromium.launch({ ...a, ...base });
     } catch (err) {
       lastErr = err;
     }
   }
   try {
     installChromium();
-    return await chromium.launch({ headless });
+    return await chromium.launch(base);
   } catch {
     throw lastErr;
   }
@@ -23926,7 +24024,8 @@ var PlaywrightRecorder = class {
     const expandEnv = opts.expandEnv ?? true;
     const size = { width: scene.viewport.width, height: scene.viewport.height };
     const chromium = await loadChromium();
-    const browser = await launchBrowser(chromium);
+    const browser = await launchBrowser(chromium, { handleSignals: false });
+    const offInterrupt = onInterrupt(() => browser.close());
     const context = await browser.newContext({
       viewport: size,
       recordVideo: { dir: join3(this.outDir, "video"), size },
@@ -24029,6 +24128,7 @@ var PlaywrightRecorder = class {
       }
       throw error62;
     } finally {
+      offInterrupt();
       await browser.close();
     }
   }
@@ -24897,7 +24997,9 @@ ${formatProblems(problems)}`
     const narration = join5(outDir, "narration.wav");
     concatWavs(wavs, narration, join5(outDir, "audio.txt"));
     log(`Combined narration: ${narration} (mean volume ${meanVolume(narration) ?? "n/a"})`);
-    const mux = muxNarration({
+    const removePartial = () => rmSync3(finalOut, { force: true, maxRetries: 10, retryDelay: 100 });
+    const offInterrupt = onInterrupt(removePartial);
+    const mux = await muxNarration({
       video: videoPath,
       audio: narration,
       leadInSec: leadInMs / 1e3,
@@ -24905,7 +25007,12 @@ ${formatProblems(problems)}`
       format: config2.output.format,
       crf: config2.output.crf,
       output: finalOut
+    }).catch((err) => {
+      offInterrupt();
+      removePartial();
+      throw err;
     });
+    offInterrupt();
     log(`Mux command:
 ${mux.command}`);
     log(`ffmpeg mux output (tail):
@@ -25013,6 +25120,7 @@ program2.command("render").description("TTS \u2192 record \u2192 mux into one na
   "--storage-state <file>",
   "load this saved session (overrides the scene's auth.storageState; the only way under --untrusted)"
 ).option("--json", "print one JSON result object on stdout; all other output goes to stderr").option("--log <file>", "write the diagnostic log here (default: <out>/narrate.log)").action(async (o) => {
+  exitOnInterrupt(o.json ? (m) => console.error(m) : (m) => console.log(m));
   if (!o.json) {
     try {
       const result = await renderCommand(o, (m) => console.log(m));
@@ -25161,8 +25269,9 @@ program2.command("check").description("Validate the environment (ffmpeg, config,
 program2.command("setup").description("Install Playwright + the Chromium browser (run once after install).").action(async () => {
   await setup((m) => console.log(m));
 });
-program2.parseAsync().catch((err) => {
+program2.parseAsync().catch(async (err) => {
   console.error(`
 \u274C ${err instanceof Error ? err.message : err}`);
+  await runCleanups((m) => console.error(m));
   process.exit(1);
 });

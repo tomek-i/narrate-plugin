@@ -2,6 +2,7 @@ import { copyFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { settingsFilesChecked } from "./config.js";
+import { onInterrupt } from "./interrupt.js";
 import {
   concatWavs,
   ensureFfmpeg,
@@ -296,7 +297,11 @@ export async function renderScene(
     const narration = join(outDir, "narration.wav");
     concatWavs(wavs, narration, join(outDir, "audio.txt"));
     log(`Combined narration: ${narration} (mean volume ${meanVolume(narration) ?? "n/a"})`);
-    const mux = muxNarration({
+    // From here a video is being written at finalOut: an interrupt or a failed
+    // mux must not leave a partial one behind.
+    const removePartial = () => rmSync(finalOut, { force: true, maxRetries: 10, retryDelay: 100 });
+    const offInterrupt = onInterrupt(removePartial);
+    const mux = await muxNarration({
       video: videoPath,
       audio: narration,
       leadInSec: leadInMs / 1000,
@@ -304,7 +309,12 @@ export async function renderScene(
       format: config.output.format,
       crf: config.output.crf,
       output: finalOut,
+    }).catch((err) => {
+      offInterrupt();
+      removePartial();
+      throw err;
     });
+    offInterrupt();
     log(`Mux command:\n${mux.command}`);
     log(`ffmpeg mux output (tail):\n${mux.stderr.trim().split("\n").slice(-12).join("\n")}`);
 

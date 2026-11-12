@@ -4,6 +4,7 @@ import { dirname, resolve } from "node:path";
 import { Command } from "commander";
 import { captureAuth } from "./auth.js";
 import { loadConfig, loadConfigLayers, loadScene, settingsFilesChecked } from "./config.js";
+import { exitOnInterrupt, runCleanups } from "./interrupt.js";
 import { RenderError, type RenderResult, renderScene } from "./pipeline.js";
 import { checkEnv, initProject, setKey, setVoice } from "./project.js";
 import { readSecret } from "./secret.js";
@@ -54,6 +55,8 @@ program
   .option("--json", "print one JSON result object on stdout; all other output goes to stderr")
   .option("--log <file>", "write the diagnostic log here (default: <out>/narrate.log)")
   .action(async (o: RenderFlags) => {
+    // Progress and interrupt messages go to stderr with --json, like all other output.
+    exitOnInterrupt(o.json ? (m) => console.error(m) : (m) => console.log(m));
     if (!o.json) {
       try {
         const result = await renderCommand(o, (m) => console.log(m));
@@ -284,7 +287,9 @@ program
     await setup((m) => console.log(m));
   });
 
-program.parseAsync().catch((err) => {
+program.parseAsync().catch(async (err) => {
   console.error(`\n❌ ${err instanceof Error ? err.message : err}`);
+  // Stop anything a failed command left running before exiting.
+  await runCleanups((m) => console.error(m));
   process.exit(1);
 });

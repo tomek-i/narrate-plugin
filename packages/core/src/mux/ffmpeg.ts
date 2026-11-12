@@ -1,5 +1,7 @@
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { once } from "node:events";
 import { writeFileSync } from "node:fs";
+import { onInterrupt } from "../interrupt.js";
 
 const fwd = (p: string) => p.replace(/\\/g, "/");
 
@@ -74,7 +76,7 @@ export function concatWavs(files: string[], output: string, listPath: string): v
  * audio through the graph (the approach that works in the reference POC) keeps
  * it. Verify afterwards with `hasAudioStream`.
  */
-export function muxNarration(opts: {
+export async function muxNarration(opts: {
   video: string;
   audio: string;
   leadInSec: number;
@@ -82,7 +84,7 @@ export function muxNarration(opts: {
   format: "mp4" | "webm";
   crf: number;
   output: string;
-}): { command: string; stderr: string } {
+}): Promise<{ command: string; stderr: string }> {
   const { video, audio, leadInSec, fps, format, crf, output } = opts;
   const vcodec =
     format === "webm"
@@ -135,12 +137,34 @@ export function muxNarration(opts: {
     output,
   ];
   const command = `ffmpeg ${args.map((a) => (/[\s;]/.test(a) ? `"${a}"` : a)).join(" ")}`;
-  const r = spawnSync("ffmpeg", args, { encoding: "utf8" });
-  if (r.status !== 0) {
-    const tail = (r.stderr ?? "").split("\n").slice(-25).join("\n");
-    throw new Error(`ffmpeg mux failed (exit ${r.status}):\n${tail}`);
+  // Asynchronous, unlike the short ffmpeg calls: encoding can take minutes, and
+  // an interrupt must be able to stop it (see interrupt.ts).
+  const child = spawn("ffmpeg", args, { stdio: ["ignore", "ignore", "pipe"] });
+  const offInterrupt = onInterrupt(async () => {
+    if (child.exitCode !== null || child.signalCode !== null) return;
+    // Wait for it to exit, so the partial output file is no longer locked (Windows).
+    const closed = once(child, "close");
+    child.kill("SIGKILL");
+    await closed;
+  });
+  let stderr = "";
+  child.stderr.setEncoding("utf8");
+  child.stderr.on("data", (d: string) => {
+    stderr += d;
+  });
+  try {
+    const status = await new Promise<number | null>((resolve, reject) => {
+      child.once("error", reject);
+      child.once("close", resolve);
+    });
+    if (status !== 0) {
+      const tail = stderr.split("\n").slice(-25).join("\n");
+      throw new Error(`ffmpeg mux failed (exit ${status}):\n${tail}`);
+    }
+  } finally {
+    offInterrupt();
   }
-  return { command, stderr: r.stderr ?? "" };
+  return { command, stderr };
 }
 
 /** Mean volume of a file's audio in dB (e.g. "-23.3 dB"), or null if undetectable. */

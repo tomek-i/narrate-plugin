@@ -112,6 +112,15 @@ code is 0 on success and 1 on failure.
 - A usage error (e.g. `--scene` missing) is reported by the argument parser as
   plain text on stderr, with nothing on stdout and exit code 1.
 
+### Stopping a render
+
+On Ctrl+C (SIGINT), SIGTERM or SIGHUP, `render` closes the browser, stops
+ffmpeg, removes a partly written video and exits with 130, 143 or 129. Nothing
+is printed on stdout then, even with `--json`. A second signal exits at once.
+Windows can't send SIGTERM to another process: a Node parent that spawned
+narrate with an IPC channel can send `{ "type": "narrate:interrupt" }` (optionally
+with `"signal": "SIGINT"`) to take the same path.
+
 ### Validating a scene without rendering
 
 ```bash
