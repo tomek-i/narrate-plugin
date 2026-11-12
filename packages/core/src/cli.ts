@@ -30,6 +30,23 @@ program
     "--same-origin",
     "keep the browser on the scene site's origin; fail without writing a video if it leaves",
   )
+  .option(
+    "--untrusted",
+    "safe mode for generated scenes: reject eval/uploadFile/off-site navigate, type ${NAME} literally, ignore the scene's auth, keep the browser on the site",
+  )
+  .option("--no-env", "type ${NAME} in fill/type text literally instead of expanding it")
+  .option(
+    "--site <url>",
+    "record this site instead of the scene's (pins where a generated scene starts)",
+  )
+  .option(
+    "--allow-origin <url...>",
+    "also allow these origins and turn on the same-origin guard (the only way to allow more under --untrusted)",
+  )
+  .option(
+    "--storage-state <file>",
+    "load this saved session (overrides the scene's auth.storageState; the only way under --untrusted)",
+  )
   .action(async (o) => {
     const cwd = process.cwd();
     const config = loadConfig(cwd, o.config);
@@ -43,10 +60,24 @@ program
     const scene = loadScene(cwd, o.scene);
     // Empty list = only the site's own origin (always allowed).
     if (o.sameOrigin) scene.allowedOrigins = [];
+    if (o.site) scene.site = o.site;
+    for (const origin of o.allowOrigin ?? []) {
+      try {
+        new URL(origin);
+      } catch {
+        throw new Error(
+          `--allow-origin expects a URL such as http://localhost:3000, got "${origin}"`,
+        );
+      }
+    }
     const out = await render(scene, config, {
       cwd,
       scenePath: o.scene,
       settingsFiles: settingsFilesChecked(cwd, o.config),
+      untrusted: o.untrusted,
+      expandEnv: o.env,
+      storageState: o.storageState,
+      allowedOrigins: o.allowOrigin,
       onLog: (m) => console.log(m),
     });
     console.log(`\n✅ Done → ${out}`);

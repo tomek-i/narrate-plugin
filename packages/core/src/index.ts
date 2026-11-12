@@ -33,4 +33,6 @@ export { PlaywrightRecorder } from "./record/playwright.js";
 export { OriginGuard, OriginGuardError, originOf } from "./record/origin-guard.js";
 export { setup, hasPlaywright } from "./setup.js";
 export type { Recorder, RecordResult } from "./record/recorder.js";
+export { untrustedProblems, formatProblems, type Problem } from "./validate.js";
+export type { RecordOptions } from "./record/recorder.js";
 export * from "./types.js";

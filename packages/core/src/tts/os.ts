@@ -39,8 +39,8 @@ export class OsTtsProvider implements TTSProvider {
 }
 
 /** Run a command, throwing if the binary is missing or it fails. */
-function run(cmd: string, args: string[]): void {
-  execFileSync(cmd, args, { stdio: "ignore" });
+function run(cmd: string, args: string[], env?: NodeJS.ProcessEnv): void {
+  execFileSync(cmd, args, { stdio: "ignore", ...(env ? { env: { ...process.env, ...env } } : {}) });
 }
 
 function scratch(): { dir: string; txt: string; out: (ext: string) => string; clean: () => void } {
@@ -57,16 +57,18 @@ function windows(text: string, voice?: string): SynthResult {
   const s = scratch();
   const wav = s.out("wav");
   writeFileSync(s.txt, text, "utf8");
-  // Single-quoted PowerShell strings treat backslashes literally, so raw paths
-  // are fine; temp paths never contain single quotes.
-  const selectVoice = voice ? `$s.SelectVoice('${voice.replace(/'/g, "''")}');` : "";
+  // The voice (scene input) and the paths (which can contain quotes, e.g. a user
+  // named O'Brien) reach PowerShell as environment variables, so they're only
+  // ever data: nothing from them is parsed as code. Quoting isn't enough here,
+  // because PowerShell also treats the curly quotes ‘ ’ as string delimiters.
   const ps = [
     "Add-Type -AssemblyName System.Speech;",
-    `$t=[IO.File]::ReadAllText('${s.txt}',[Text.Encoding]::UTF8);`,
+    "$t=[IO.File]::ReadAllText($env:NARRATE_TTS_IN,[Text.Encoding]::UTF8);",
     "$s=New-Object System.Speech.Synthesis.SpeechSynthesizer;",
-    selectVoice,
-    `$s.SetOutputToWaveFile('${wav}');$s.Speak($t);$s.Dispose();`,
+    voice ? "$s.SelectVoice($env:NARRATE_TTS_VOICE);" : "",
+    "$s.SetOutputToWaveFile($env:NARRATE_TTS_OUT);$s.Speak($t);$s.Dispose();",
   ].join("");
+  const env = { NARRATE_TTS_IN: s.txt, NARRATE_TTS_OUT: wav, NARRATE_TTS_VOICE: voice ?? "" };
   const args = ["-NoProfile", "-NonInteractive", "-Command", ps];
   // Resolve powershell.exe by absolute path first — when this runs from a
   // spawned shell (e.g. Git Bash) System32 isn't always on PATH.
@@ -80,7 +82,7 @@ function windows(text: string, voice?: string): SynthResult {
   let lastErr: unknown;
   for (const exe of candidates) {
     try {
-      run(exe, args);
+      run(exe, args, env);
       ran = true;
       break;
     } catch (err) {

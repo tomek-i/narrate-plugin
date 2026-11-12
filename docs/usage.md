@@ -71,6 +71,11 @@ Flags (`render`):
 | `-c, --config <f>`  | project config file, layered over the global one (default `.narrate/settings.local.json`)|
 | `--provider <p>`    | override TTS provider (`gemini`/`elevenlabs`/`os`/`mock`)|
 | `--voice <v>`       | override voice                                      |
+| `--untrusted`       | safe mode for generated scenes ([scenes.md](./scenes.md#untrusted-generated-scenes)) |
+| `--no-env`          | type `${NAME}` in `fill`/`type` text literally instead of expanding it |
+| `--site <url>`      | record this site instead of the scene's `site` |
+| `--allow-origin <url…>` | allow these origins too and turn on the same-origin guard (the only way to allow more under `--untrusted`) |
+| `--storage-state <f>` | load this saved session; overrides the scene's `auth.storageState` |
 | `--same-origin`     | keep the browser on the site's origin; fail without a video if it leaves ([scenes.md](./scenes.md#same-origin-guard)) |
 
 Keyless smoke test (silent narration, exercises the whole pipeline):

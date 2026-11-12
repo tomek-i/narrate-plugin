@@ -16,6 +16,7 @@ import { PlaywrightRecorder } from "./record/playwright.js";
 import { hasPlaywright, installChromium, installPlaywrightPackage } from "./setup.js";
 import { makeProvider } from "./tts/index.js";
 import type { Config, Durations, Scene } from "./types.js";
+import { formatProblems, untrustedProblems } from "./validate.js";
 import { buildVtt } from "./vtt.js";
 
 export interface RenderOptions {
@@ -23,6 +24,23 @@ export interface RenderOptions {
   onLog?: (msg: string) => void;
   /** Path the scene was loaded from — used by `output.keepScene` to retain a copy. */
   scenePath?: string;
+  /**
+   * Safe mode for generated scenes (also on when the scene sets `untrusted`):
+   * rejects `eval`, `uploadFile` and off-origin `navigate` before anything runs,
+   * types `${NAME}` literally, ignores the scene's `auth.storageState` (only
+   * `storageState` below is used) and turns on the same-origin guard.
+   */
+  untrusted?: boolean;
+  /** Expand `${NAME}` in `fill`/`type` text (default true; `--no-env` sets false). */
+  expandEnv?: boolean;
+  /**
+   * Origins the caller allows besides the site's own (`--allow-origin`); turns on
+   * the same-origin guard. In untrusted mode these are the only extra origins:
+   * the scene's own `allowedOrigins` is ignored.
+   */
+  allowedOrigins?: string[];
+  /** A storage-state file chosen by the caller; overrides the scene's `auth`. */
+  storageState?: string;
   /** Settings files consulted for this run; named in a missing-key error. */
   settingsFiles?: string[];
 }
@@ -48,6 +66,20 @@ export async function render(scene: Scene, config: Config, opts: RenderOptions):
     `narrate render — scene "${scene.name}", provider "${config.tts.provider}", platform ${process.platform}`,
   );
 
+  // Safe mode: reject dangerous steps before spending anything on TTS or recording.
+  const untrusted = Boolean(opts.untrusted || scene.untrusted);
+  if (untrusted) {
+    const problems = untrustedProblems(
+      { ...scene, site: resolveSite(scene.site, opts.cwd) },
+      { allowedOrigins: opts.allowedOrigins },
+    );
+    if (problems.length) {
+      throw new Error(`Scene rejected (untrusted mode):\n${formatProblems(problems)}`);
+    }
+    log("Untrusted mode: on (no eval/uploadFile/off-site navigate, ${NAME} typed literally)");
+  }
+  const expandEnv = !untrusted && opts.expandEnv !== false;
+
   // Preflight: ffmpeg must be on PATH; Playwright + Chromium are auto-provisioned
   // on first run so the only manual dependency is ffmpeg.
   ensureFfmpeg();
@@ -72,11 +104,12 @@ export async function render(scene: Scene, config: Config, opts: RenderOptions):
   log(`Generating narration with "${provider.name}" (voice: ${activeVoice})…`);
   const durations: Durations = {};
   const wavs: string[] = [];
-  for (const beat of scene.beats) {
+  for (const [i, beat] of scene.beats.entries()) {
     const res = await provider.synth(beat.say, { voice: beat.voice });
     // Normalize the provider bytes straight to a single 48kHz-stereo WAV (piped
     // through ffmpeg, so no raw intermediate file is written) for clean concat.
-    const wavPath = join(audioDir, `${beat.id}.wav`);
+    // Named by position, not id: an id is free text and mustn't become a path.
+    const wavPath = join(audioDir, `beat-${String(i + 1).padStart(3, "0")}.wav`);
     normalizeToWav(res.audio, wavPath);
     durations[beat.id] = probeDuration(wavPath);
     wavs.push(wavPath);
@@ -88,7 +121,19 @@ export async function render(scene: Scene, config: Config, opts: RenderOptions):
   const recorder = new PlaywrightRecorder(outDir, config, log);
   // Resolve an auth storage-state path (if any) up front so the recorder gets an
   // absolute path and a missing file fails here with a clear, actionable message.
-  let auth = scene.auth;
+  // In untrusted mode the scene can't pick which saved session to load.
+  if (untrusted && scene.allowedOrigins?.length) {
+    log(
+      `⚠️  Untrusted mode: ignoring the scene's allowedOrigins (${scene.allowedOrigins.join(", ")}); pass --allow-origin to allow more origins.`,
+    );
+  }
+  if (untrusted && scene.auth?.storageState && !opts.storageState) {
+    log(
+      `⚠️  Untrusted mode: ignoring the scene's auth.storageState (${scene.auth.storageState}); pass --storage-state to start signed in.`,
+    );
+  }
+  const statePathIn = opts.storageState ?? (untrusted ? undefined : scene.auth?.storageState);
+  let auth = statePathIn ? { storageState: statePathIn } : undefined;
   if (auth?.storageState) {
     const statePath = resolve(opts.cwd, auth.storageState);
     if (!existsSync(statePath)) {
@@ -99,7 +144,15 @@ export async function render(scene: Scene, config: Config, opts: RenderOptions):
     auth = { storageState: statePath };
     log(`Auth: loading storage state from ${statePath} (starting signed in)`);
   }
-  const sceneToRecord = { ...scene, site: resolveSite(scene.site, opts.cwd), auth };
+  const sceneToRecord = {
+    ...scene,
+    site: resolveSite(scene.site, opts.cwd),
+    auth,
+    // Untrusted scenes always record with the guard on, and can't widen it.
+    allowedOrigins: untrusted
+      ? (opts.allowedOrigins ?? [])
+      : (opts.allowedOrigins ?? scene.allowedOrigins),
+  };
   if (sceneToRecord.allowedOrigins) {
     // If the guard fails, no video may be left at the output path — not even an
     // older one a caller could mistake for this run's.
@@ -108,7 +161,7 @@ export async function render(scene: Scene, config: Config, opts: RenderOptions):
       `Same-origin guard: on (allowed: ${[sceneToRecord.site, ...sceneToRecord.allowedOrigins].map(originOf).join(", ")})`,
     );
   }
-  const { videoPath, leadInMs } = await recorder.record(sceneToRecord, durations);
+  const { videoPath, leadInMs } = await recorder.record(sceneToRecord, durations, { expandEnv });
   if (!videoPath) throw new Error("Recording produced no video file.");
   log(`Recorded video: ${videoPath} (lead-in ${(leadInMs / 1000).toFixed(3)}s)`);
 

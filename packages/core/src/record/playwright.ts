@@ -6,7 +6,7 @@ import { installChromium } from "../setup.js";
 import type { Config, Durations, OverlayConfig, Scene, Step, WaitUntil } from "../types.js";
 import { OriginGuard, OriginGuardError } from "./origin-guard.js";
 import { OVERLAY_SCRIPT } from "./overlay.js";
-import type { RecordResult, Recorder } from "./recorder.js";
+import type { RecordOptions, RecordResult, Recorder } from "./recorder.js";
 
 /** Shape of the in-page overlay API injected by OVERLAY_SCRIPT. */
 interface NarrateOverlay {
@@ -91,7 +91,12 @@ export class PlaywrightRecorder implements Recorder {
     private log: (msg: string) => void = (msg) => console.warn(`[narrate] ${msg}`),
   ) {}
 
-  async record(scene: Scene, durations: Durations): Promise<RecordResult> {
+  async record(
+    scene: Scene,
+    durations: Durations,
+    opts: RecordOptions = {},
+  ): Promise<RecordResult> {
+    const expandEnv = opts.expandEnv ?? true;
     const size = { width: scene.viewport.width, height: scene.viewport.height };
     const chromium = await loadChromium();
     const browser = await launchBrowser(chromium);
@@ -175,7 +180,7 @@ export class PlaywrightRecorder implements Recorder {
         }
         for (const [i, step] of beat.do.entries()) {
           await guarded(`beat "${beat.id}" step ${i + 1} (${step.action})`, () =>
-            runStep(page, step, fx, pl),
+            runStep(page, step, fx, pl, expandEnv),
           );
         }
         // Pad (or warn) so the beat ends exactly on the audio boundary.
@@ -315,7 +320,16 @@ async function clearHighlight(page: Page, selector?: string): Promise<void> {
     .catch(() => {});
 }
 
-async function runStep(page: Page, step: Step, fx: OverlayConfig, pl: PageLoad): Promise<void> {
+async function runStep(
+  page: Page,
+  step: Step,
+  fx: OverlayConfig,
+  pl: PageLoad,
+  expandEnv: boolean,
+): Promise<void> {
+  // `${NAME}` from the environment keeps secrets out of the scene file; off for
+  // untrusted scenes, where it could type the machine's environment into the video.
+  const text = (t: string) => (expandEnv ? interpolateEnv(t) : t);
   switch (step.action) {
     // --- timing ---
     case "wait":
@@ -375,13 +389,11 @@ async function runStep(page: Page, step: Step, fx: OverlayConfig, pl: PageLoad):
     case "fill":
       if (fx.cursor) await pointTo(page, step.selector);
       // Resolve any `${ENV_VAR}` so secrets stay out of the scene file / the LLM.
-      await page.fill(step.selector, interpolateEnv(step.text));
+      await page.fill(step.selector, text(step.text));
       return;
     case "type":
       if (fx.cursor) await pointTo(page, step.selector);
-      await page
-        .locator(step.selector)
-        .pressSequentially(interpolateEnv(step.text), { delay: step.delay });
+      await page.locator(step.selector).pressSequentially(text(step.text), { delay: step.delay });
       return;
     case "clear":
       await page.fill(step.selector, "");

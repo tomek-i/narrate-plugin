@@ -166,6 +166,11 @@ export const SceneSchema = z.object({
       }),
     )
     .optional(),
+  /**
+   * Treat this scene as untrusted (generated): see `render --untrusted`. The
+   * flag turns it on even when the scene doesn't ask for it.
+   */
+  untrusted: z.boolean().optional(),
   /** Override `record.waitUntil` from the config for this scene. */
   waitUntil: WaitUntilSchema.optional(),
   beats: z.array(BeatSchema).min(1),

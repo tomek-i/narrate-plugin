@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
@@ -13,11 +13,13 @@ import {
   settingsFilesChecked,
 } from "../src/config.js";
 import { interpolateEnv } from "../src/env.js";
+import { render } from "../src/pipeline.js";
 import { OriginGuard, originOf } from "../src/record/origin-guard.js";
 import { maskKey } from "../src/secret.js";
 import { MockProvider } from "../src/tts/mock.js";
 import { OsTtsProvider } from "../src/tts/os.js";
 import { ConfigSchema, SceneSchema } from "../src/types.js";
+import { untrustedProblems } from "../src/validate.js";
 import { buildVtt } from "../src/vtt.js";
 
 test("pcmToWav writes a valid 44-byte WAV header", () => {
@@ -279,4 +281,95 @@ test("the origin guard compares origins, treats local files as one, and allows i
 test("maskKey shows only the prefix and last four characters", () => {
   assert.equal(maskKey("sk_aaaaaaaaaaaaaaaaaaaad286"), "sk_…d286");
   assert.equal(maskKey("short"), "…");
+});
+
+const unsafeScene = (steps: object[], extra: object = {}) =>
+  SceneSchema.parse({
+    site: "http://localhost:3000/app",
+    ...extra,
+    beats: [{ id: "intro", say: "x", do: steps }],
+  });
+
+test("untrusted mode rejects eval, uploadFile and off-origin navigate, naming beat and step", () => {
+  const problems = untrustedProblems(
+    unsafeScene([
+      { action: "eval", fn: "1" },
+      { action: "uploadFile", selector: "input", files: ["/etc/passwd"] },
+      { action: "navigate", url: "https://evil.example/" },
+      { action: "navigate", url: "/settings" }, // relative → same origin, fine
+      { action: "navigate", url: "http://localhost:3000/x" },
+      { action: "click", selector: "a" },
+    ]),
+  );
+  assert.deepEqual(
+    problems.map((p) => p.path),
+    ["beats[0].do[0]", "beats[0].do[1]", "beats[0].do[2].url"],
+  );
+  assert.match(problems[0].message, /beat "intro" step 1: eval/);
+  assert.match(problems[2].message, /https:\/\/evil\.example\//);
+  // The caller's allowed origins widen what navigate may reach; the scene's own don't.
+  const toDocs = unsafeScene([{ action: "navigate", url: "https://docs.example/a" }], {
+    allowedOrigins: ["https://docs.example"],
+  });
+  assert.deepEqual(
+    untrustedProblems(toDocs).map((p) => p.path),
+    ["beats[0].do[0].url"],
+  );
+  assert.deepEqual(untrustedProblems(toDocs, { allowedOrigins: ["https://docs.example"] }), []);
+});
+
+test("untrusted mode requires an http(s) site, rejects file: navigates and unsafe names", () => {
+  const scene = SceneSchema.parse({
+    name: "../../Videos/important",
+    site: "file:///C:/Users/me/.ssh/id_rsa",
+    beats: [
+      { id: "../../x", say: "x", do: [{ action: "navigate", url: "file:///etc/passwd" }] },
+      { id: "ok_id-1.2", say: "y" },
+    ],
+  });
+  assert.deepEqual(
+    untrustedProblems(scene).map((p) => p.path),
+    ["site", "name", "beats[0].id", "beats[0].do[0].url"],
+  );
+});
+
+test(
+  "the Windows OS voice treats the voice name as data, never as PowerShell code",
+  {
+    skip: process.platform !== "win32" && "Windows only",
+  },
+  async () => {
+    const dir = mkdtempSync(join(tmpdir(), "narrate-voice-"));
+    try {
+      const marker = join(dir, "pwned.txt");
+      // PowerShell treats curly quotes as single quotes, so this closes the old
+      // quoted string; the path is curly-quoted too, which ASCII-quote escaping misses.
+      const voice = `x’);Set-Content -Path ‘${marker}’ -Value 1;#`;
+      const res = await new OsTtsProvider().synth("Hello.", { voice });
+      assert.ok(res.audio.length > 0);
+      assert.ok(!existsSync(marker), "the voice name ran as code");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  },
+);
+
+test("render in untrusted mode rejects a scene before any work, from the flag or the scene", async () => {
+  const root = mkdtempSync(join(tmpdir(), "narrate-untrusted-"));
+  try {
+    const config = ConfigSchema.parse({ tts: { provider: "mock" }, output: { dir: "out" } });
+    const scene = unsafeScene([{ action: "eval", fn: "1" }]);
+    await assert.rejects(render(scene, config, { cwd: root, untrusted: true }), (err: Error) => {
+      assert.match(err.message, /Scene rejected \(untrusted mode\)/);
+      assert.match(err.message, /beats\[0\]\.do\[0\]: beat "intro" step 1: eval/);
+      return true;
+    });
+    await assert.rejects(
+      render({ ...scene, untrusted: true }, config, { cwd: root }),
+      /Scene rejected/,
+    );
+    assert.ok(!existsSync(join(root, "out")), "nothing may be written");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
