@@ -12,19 +12,24 @@ export interface TestServer {
   close(): Promise<void>;
 }
 
-/** Start a throwaway HTTP server on a free localhost port. */
+/**
+ * Start a throwaway HTTP server on a free port. `host: "localhost"` gives a
+ * second, distinct host name (cookies are per host, not per port); it listens
+ * dual-stack so `localhost` works whether it resolves to 127.0.0.1 or ::1.
+ */
 export async function serve(
   handler: (req: IncomingMessage, res: ServerResponse) => void,
+  host: "127.0.0.1" | "localhost" = "127.0.0.1",
 ): Promise<TestServer> {
   const hits: string[] = [];
   const server = createServer((req, res) => {
     hits.push(req.url ?? "");
     handler(req, res);
   });
-  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  await new Promise<void>((r) => server.listen(0, host === "localhost" ? "::" : host, r));
   const { port } = server.address() as AddressInfo;
   return {
-    url: `http://127.0.0.1:${port}`,
+    url: `http://${host}:${port}`,
     hits,
     close: () =>
       new Promise((r) => {
@@ -76,5 +81,9 @@ export async function browserSkipReason(): Promise<string | false> {
 
 export function tempDir(prefix: string): { dir: string; cleanup(): void } {
   const dir = mkdtempSync(join(tmpdir(), prefix));
-  return { dir, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+  // Retries: on Windows a just-closed browser can hold a video file for a moment.
+  return {
+    dir,
+    cleanup: () => rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }),
+  };
 }

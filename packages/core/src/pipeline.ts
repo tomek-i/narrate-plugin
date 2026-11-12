@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { settingsFilesChecked } from "./config.js";
@@ -11,6 +11,7 @@ import {
   normalizeToWav,
   probeDuration,
 } from "./mux/ffmpeg.js";
+import { originOf } from "./record/origin-guard.js";
 import { PlaywrightRecorder } from "./record/playwright.js";
 import { hasPlaywright, installChromium, installPlaywrightPackage } from "./setup.js";
 import { makeProvider } from "./tts/index.js";
@@ -99,6 +100,14 @@ export async function render(scene: Scene, config: Config, opts: RenderOptions):
     log(`Auth: loading storage state from ${statePath} (starting signed in)`);
   }
   const sceneToRecord = { ...scene, site: resolveSite(scene.site, opts.cwd), auth };
+  if (sceneToRecord.allowedOrigins) {
+    // If the guard fails, no video may be left at the output path — not even an
+    // older one a caller could mistake for this run's.
+    rmSync(join(outDir, `${scene.name}.${config.output.format}`), { force: true });
+    log(
+      `Same-origin guard: on (allowed: ${[sceneToRecord.site, ...sceneToRecord.allowedOrigins].map(originOf).join(", ")})`,
+    );
+  }
   const { videoPath, leadInMs } = await recorder.record(sceneToRecord, durations);
   if (!videoPath) throw new Error("Recording produced no video file.");
   log(`Recorded video: ${videoPath} (lead-in ${(leadInMs / 1000).toFixed(3)}s)`);

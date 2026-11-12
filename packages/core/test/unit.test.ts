@@ -13,6 +13,7 @@ import {
   settingsFilesChecked,
 } from "../src/config.js";
 import { interpolateEnv } from "../src/env.js";
+import { OriginGuard, originOf } from "../src/record/origin-guard.js";
 import { maskKey } from "../src/secret.js";
 import { MockProvider } from "../src/tts/mock.js";
 import { OsTtsProvider } from "../src/tts/os.js";
@@ -252,6 +253,27 @@ test("a missing key error names every place that was checked", () => {
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("the origin guard compares origins, treats local files as one, and allows inline schemes", () => {
+  assert.equal(originOf("http://localhost:3000/a/b?c"), "http://localhost:3000");
+  assert.equal(originOf("file:///C:/x/index.html"), "file://");
+  const guard = new OriginGuard(["http://localhost:3000/start"]);
+  assert.ok(guard.allows("http://localhost:3000/other"));
+  assert.ok(!guard.allows("http://localhost:3001/"));
+  assert.ok(!guard.allows("https://localhost:3000/"));
+  assert.ok(guard.allows("about:blank"));
+  assert.ok(guard.allows("data:text/plain,hi"));
+  assert.ok(!guard.allows("not a url"));
+  assert.throws(
+    () =>
+      SceneSchema.parse({
+        site: "x",
+        allowedOrigins: ["localhost"],
+        beats: [{ id: "a", say: "" }],
+      }),
+    /absolute URL/,
+  );
 });
 
 test("maskKey shows only the prefix and last four characters", () => {

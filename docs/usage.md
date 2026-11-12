@@ -71,6 +71,7 @@ Flags (`render`):
 | `-c, --config <f>`  | project config file, layered over the global one (default `.narrate/settings.local.json`)|
 | `--provider <p>`    | override TTS provider (`gemini`/`elevenlabs`/`os`/`mock`)|
 | `--voice <v>`       | override voice                                      |
+| `--same-origin`     | keep the browser on the site's origin; fail without a video if it leaves ([scenes.md](./scenes.md#same-origin-guard)) |
 
 Keyless smoke test (silent narration, exercises the whole pipeline):
 

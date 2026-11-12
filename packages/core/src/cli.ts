@@ -26,6 +26,10 @@ program
   .option("-o, --out <dir>", "output directory (overrides config output.dir)")
   .option("--provider <name>", "override TTS provider (gemini|elevenlabs|os|mock)")
   .option("--voice <name>", "override voice")
+  .option(
+    "--same-origin",
+    "keep the browser on the scene site's origin; fail without writing a video if it leaves",
+  )
   .action(async (o) => {
     const cwd = process.cwd();
     const config = loadConfig(cwd, o.config);
@@ -37,6 +41,8 @@ program
     }
     if (o.out) config.output.dir = o.out;
     const scene = loadScene(cwd, o.scene);
+    // Empty list = only the site's own origin (always allowed).
+    if (o.sameOrigin) scene.allowedOrigins = [];
     const out = await render(scene, config, {
       cwd,
       scenePath: o.scene,

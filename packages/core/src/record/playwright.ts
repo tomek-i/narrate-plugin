@@ -1,8 +1,10 @@
+import { rmSync } from "node:fs";
 import { join } from "node:path";
 import type { Browser, BrowserType, Page } from "playwright";
 import { interpolateEnv } from "../env.js";
 import { installChromium } from "../setup.js";
 import type { Config, Durations, OverlayConfig, Scene, Step, WaitUntil } from "../types.js";
+import { OriginGuard, OriginGuardError } from "./origin-guard.js";
 import { OVERLAY_SCRIPT } from "./overlay.js";
 import type { RecordResult, Recorder } from "./recorder.js";
 
@@ -104,6 +106,9 @@ export class PlaywrightRecorder implements Recorder {
       // localStorage), so the login screen is skipped and no credential is needed.
       // The path is resolved/validated by the pipeline before we get here.
       ...(scene.auth?.storageState ? { storageState: scene.auth.storageState } : {}),
+      // Requests a service worker answers bypass routing, so the same-origin
+      // guard can't see them: no service workers while it's on.
+      ...(scene.allowedOrigins ? { serviceWorkers: "block" as const } : {}),
     });
     // Inject the synthetic-cursor + highlight overlay (if either is enabled) so
     // it's present on every page/navigation. It's inert until the steps call it.
@@ -122,13 +127,30 @@ export class PlaywrightRecorder implements Recorder {
     };
     // Covers goto/reload/back/forward/waitForURL; load-state waits pass it explicitly.
     page.setDefaultNavigationTimeout(pl.timeoutMs);
+    // Opt-in: keep the browser on the scene's site (its origin is always allowed).
+    const guard = scene.allowedOrigins
+      ? new OriginGuard([scene.site, ...scene.allowedOrigins], pl.warn, pl.timeoutMs)
+      : null;
+    if (guard) await guard.install(context, page);
+    // Every page's recording (popups too, even once closed), so a guard failure
+    // can delete them all.
+    const videos = [page.video()];
+    context.on("page", (p) => videos.push(p.video()));
+    /** Run `fn`, then fail if the page left the allowed origins during it. A
+     *  blocked navigation usually makes `fn` throw too; the guard error wins. */
+    const guarded = async (where: string, fn: () => Promise<void>) => {
+      try {
+        await fn();
+      } catch (err) {
+        guard?.check(page, where);
+        throw err;
+      }
+      guard?.check(page, where);
+    };
 
     try {
-      await loadPage(
-        page,
-        (waitUntil) => page.goto(scene.site, { waitUntil }),
-        pl,
-        "Opening the site",
+      await guarded("opening the site", () =>
+        loadPage(page, (waitUntil) => page.goto(scene.site, { waitUntil }), pl, "Opening the site"),
       );
       await page.evaluate(() => window.scrollTo(0, 0));
       await page.waitForTimeout(400); // let fonts/layout settle
@@ -151,7 +173,11 @@ export class PlaywrightRecorder implements Recorder {
             beat.focusLabel,
           );
         }
-        for (const step of beat.do) await runStep(page, step, fx, pl);
+        for (const [i, step] of beat.do.entries()) {
+          await guarded(`beat "${beat.id}" step ${i + 1} (${step.action})`, () =>
+            runStep(page, step, fx, pl),
+          );
+        }
         // Pad (or warn) so the beat ends exactly on the audio boundary.
         const remaining = targetEnd - (Date.now() - t0);
         if (remaining > 0) await page.waitForTimeout(remaining);
@@ -161,14 +187,37 @@ export class PlaywrightRecorder implements Recorder {
             `beat "${beat.id}" visuals overran narration by ${-remaining}ms; shorten its steps or lengthen the narration.`,
           );
         }
+        // A timed client-side redirect can fire while the beat is held.
+        guard?.check(page, `beat "${beat.id}"`);
         // Clear everything between beats for a predictable, clean slate.
         if (fx.highlight) await clearHighlight(page);
       }
 
+      // A redirect can still land after the last beat's check.
+      guard?.check(page, "the end of the scene");
       const video = page.video();
+      await context.unrouteAll({ behavior: "ignoreErrors" });
       await context.close(); // finalizes the webm
       const videoPath = video ? await video.path() : "";
       return { videoPath, leadInMs };
+    } catch (err) {
+      let error = err;
+      // Leaving the site can also break a step the guard doesn't wrap (e.g. an
+      // overlay call fails as the page navigates); report the real cause.
+      if (guard && !(error instanceof OriginGuardError) && guard.violated(page)) {
+        try {
+          guard.check(page, "the scene");
+        } catch (guardErr) {
+          error = guardErr;
+        }
+      }
+      // The raw recordings may already show the other site: never leave them behind.
+      if (error instanceof OriginGuardError) {
+        await context.unrouteAll({ behavior: "ignoreErrors" });
+        await context.close().catch(() => {});
+        for (const v of videos) if (v) rmSync(await v.path(), { force: true });
+      }
+      throw error;
     } finally {
       await browser.close();
     }

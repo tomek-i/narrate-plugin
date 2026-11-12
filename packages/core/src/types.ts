@@ -1,5 +1,13 @@
 import { z } from "zod";
 
+function isAbsoluteUrl(s: string): boolean {
+  try {
+    return Boolean(new URL(s));
+  } catch {
+    return false;
+  }
+}
+
 /**
  * A single timed action performed within a beat. Selectors are real Playwright
  * selectors (CSS, text=, role=, etc.). This set aims to cover most flows so the
@@ -144,6 +152,20 @@ export const SceneSchema = z.object({
   theme: z.enum(["light", "dark", "system"]).optional(),
   /** Start already authenticated by loading a saved Playwright storage state. */
   auth: AuthSchema.optional(),
+  /**
+   * Keep the recorded browser on these origins (e.g. `http://localhost:3000`);
+   * the origin of `site` is always allowed. Requests to any other origin are
+   * blocked, and a navigation to one (link, redirect, timed client redirect)
+   * fails the render without writing a video. Not set = no guard. The
+   * `--same-origin` render flag sets it to just the site's origin.
+   */
+  allowedOrigins: z
+    .array(
+      z.string().refine(isAbsoluteUrl, {
+        message: "must be an absolute URL, e.g. http://localhost:3000",
+      }),
+    )
+    .optional(),
   /** Override `record.waitUntil` from the config for this scene. */
   waitUntil: WaitUntilSchema.optional(),
   beats: z.array(BeatSchema).min(1),
