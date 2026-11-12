@@ -2,11 +2,12 @@
 import { Command } from "commander";
 import { captureAuth } from "./auth.js";
 import { loadConfig, loadConfigLayers, loadScene, settingsFilesChecked } from "./config.js";
-import { render } from "./pipeline.js";
+import { RenderError, type RenderResult, renderScene } from "./pipeline.js";
 import { checkEnv, initProject, setKey, setVoice } from "./project.js";
 import { readSecret } from "./secret.js";
 import { packageVersion, setup } from "./setup.js";
 import { listVoices } from "./tts/voices.js";
+import type { Config } from "./types.js";
 import { allowedOriginProblems, formatProblems, validateSceneFile } from "./validate.js";
 
 const CONFIG_HELP =
@@ -48,34 +49,79 @@ program
     "--storage-state <file>",
     "load this saved session (overrides the scene's auth.storageState; the only way under --untrusted)",
   )
-  .action(async (o) => {
-    const cwd = process.cwd();
-    const config = loadConfig(cwd, o.config);
-    if (o.provider) config.tts.provider = o.provider;
-    if (o.voice) {
-      // Apply the voice override to whichever provider is now active.
-      if (config.tts.provider === "gemini") config.tts.gemini.voice = o.voice;
-      else if (config.tts.provider === "elevenlabs") config.tts.elevenlabs.voice = o.voice;
+  .option("--json", "print one JSON result object on stdout; all other output goes to stderr")
+  .option("--log <file>", "write the diagnostic log here (default: <out>/narrate.log)")
+  .action(async (o: RenderFlags) => {
+    if (!o.json) {
+      const result = await renderCommand(o, (m) => console.log(m));
+      console.log(`\n✅ Done → ${result.video}`);
+      return;
     }
-    if (o.out) config.output.dir = o.out;
-    const scene = loadScene(cwd, o.scene);
-    // Empty list = only the site's own origin (always allowed).
-    if (o.sameOrigin) scene.allowedOrigins = [];
-    if (o.site) scene.site = o.site;
-    const [badOrigin] = allowedOriginProblems(o.allowOrigin);
-    if (badOrigin) throw new Error(`--allow-origin ${badOrigin.message}`);
-    const out = await render(scene, config, {
-      cwd,
-      scenePath: o.scene,
-      settingsFiles: settingsFilesChecked(cwd, o.config),
-      untrusted: o.untrusted,
-      expandEnv: o.env,
-      storageState: o.storageState,
-      allowedOrigins: o.allowOrigin,
-      onLog: (m) => console.log(m),
-    });
-    console.log(`\n✅ Done → ${out}`);
+    // With --json, stdout carries exactly one JSON object; everything else is stderr.
+    try {
+      const result = await renderCommand(o, (m) => console.error(m));
+      console.log(JSON.stringify({ ok: true, ...result }));
+    } catch (err) {
+      console.log(
+        JSON.stringify({
+          ok: false,
+          // Errors before the render starts (config, scene file) are input problems.
+          stage: err instanceof RenderError ? err.stage : "validate",
+          error: err instanceof Error ? err.message : String(err),
+          log: err instanceof RenderError ? err.log : null,
+        }),
+      );
+      process.exitCode = 1;
+    }
   });
+
+interface RenderFlags {
+  scene: string;
+  config?: string;
+  out?: string;
+  provider?: Config["tts"]["provider"];
+  voice?: string;
+  sameOrigin?: boolean;
+  untrusted?: boolean;
+  /** false with --no-env */
+  env: boolean;
+  storageState?: string;
+  site?: string;
+  allowOrigin?: string[];
+  json?: boolean;
+  log?: string;
+}
+
+async function renderCommand(o: RenderFlags, say: (m: string) => void): Promise<RenderResult> {
+  const cwd = process.cwd();
+  const config = loadConfig(cwd, o.config);
+  if (o.provider) config.tts.provider = o.provider;
+  if (o.voice) {
+    // Apply the voice override to whichever provider is now active.
+    if (config.tts.provider === "gemini") config.tts.gemini.voice = o.voice;
+    else if (config.tts.provider === "elevenlabs") config.tts.elevenlabs.voice = o.voice;
+  }
+  if (o.out) config.output.dir = o.out;
+  const scene = loadScene(cwd, o.scene);
+  // Empty list = only the site's own origin (always allowed).
+  if (o.sameOrigin) scene.allowedOrigins = [];
+  if (o.site) scene.site = o.site;
+  const [badOrigin] = allowedOriginProblems(o.allowOrigin);
+  if (badOrigin) throw new Error(`--allow-origin ${badOrigin.message}`);
+  return renderScene(scene, config, {
+    cwd,
+    scenePath: o.scene,
+    settingsFiles: settingsFilesChecked(cwd, o.config),
+    untrusted: o.untrusted,
+    expandEnv: o.env,
+    storageState: o.storageState,
+    allowedOrigins: o.allowOrigin,
+    logFile: o.log,
+    // A caller parsing --json output must never get a silent "narrated" video.
+    requireAudio: Boolean(o.json),
+    onLog: say,
+  });
+}
 
 program
   .command("validate")
