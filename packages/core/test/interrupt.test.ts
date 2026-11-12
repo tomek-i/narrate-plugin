@@ -96,7 +96,7 @@ describe("an interrupted render", () => {
   let skip: string | false = "not probed";
   before(async () => {
     site = await serve((_req, res) => html(res, "<h1>Slow walkthrough</h1>"));
-    skip = await browserSkipReason();
+    skip = await browserSkipReason({ ffmpeg: true });
   });
   after(async () => {
     await site.close();

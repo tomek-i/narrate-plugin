@@ -240,7 +240,7 @@ highlights are injected into the page (never the OS cursor) and are on by defaul
 they're configurable under `overlay` in settings.
 
 Beat ids must be unique. For editor autocomplete, add the hosted schema
-(`render` ignores unknown keys; `validate` reports them, so run it to catch typos):
+(`render` only warns about unknown keys and renders anyway; `validate` reports them as problems, so run it to catch typos):
 `"$schema": "https://raw.githubusercontent.com/tomek-i/narrate-plugin/main/narrate.scene.schema.json"`.
 
 ## Step vocabulary (the `do` array)
