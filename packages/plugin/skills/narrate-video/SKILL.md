@@ -101,7 +101,8 @@ node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" <command> …
 
 (In the source monorepo you can instead use `pnpm narrate …`.)
 
-Commands: `init` (scaffold the project override file `.narrate/settings.local.json`;
+Commands: `validate --scene <file> [--json] [--untrusted] [--site <url>] [--allow-origin <url...>]` (check a scene without
+rendering; exit 0/1, with a path per problem), `init` (scaffold the project override file `.narrate/settings.local.json`;
 settings + keys normally come from the global `~/.narrate/settings.json`),
 `check` (validate ffmpeg + config; exit 0/1), `render --scene <file> [--out <dir>]
 [--provider <p>] [--voice <v>] [--same-origin] [--untrusted] [--no-env] [--storage-state <file>] [--site <url>] [--allow-origin <url…>]`, `auth <login-url> [--out <file>]` (log in once and
@@ -161,8 +162,10 @@ Playwright + Chromium; normally automatic). TTS provider/key onboarding lives in
      calls out a specific element/section (especially a changed one from the diff),
      set that beat's **`focus`** selector (or a `highlight` step *after* any scroll),
      so a ~3s pulse points right at it, then fades. Add a `focusLabel` to name it.
-5. **Render** to the temp dir:
+5. **Validate, then render** to the temp dir. `validate` is instant and needs no
+   browser or voice; fix every reported `path` before rendering:
    ```bash
+   node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" validate --scene ./.narrate/tmp/<slug>.scene.json
    node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" render \
      --scene ./.narrate/tmp/<slug>.scene.json --out ./.narrate/tmp
    ```

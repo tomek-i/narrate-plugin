@@ -7,6 +7,7 @@ import { parseRate, pcmToWav } from "../src/audio/wav.js";
 import {
   hasApiKey,
   loadConfigLayers,
+  loadScene,
   mergeSettings,
   resolveApiKey,
   settingOrigin,
@@ -369,6 +370,47 @@ test("render in untrusted mode rejects a scene before any work, from the flag or
       /Scene rejected/,
     );
     assert.ok(!existsSync(join(root, "out")), "nothing may be written");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("render rejects duplicate beat ids before any TTS, in normal mode too", async () => {
+  const root = mkdtempSync(join(tmpdir(), "narrate-dup-"));
+  try {
+    const config = ConfigSchema.parse({ tts: { provider: "mock" }, output: { dir: "out" } });
+    const scene = SceneSchema.parse({
+      site: "http://localhost:3000",
+      beats: [
+        { id: "a", say: "x" },
+        { id: "a", say: "y" },
+      ],
+    });
+    await assert.rejects(
+      render(scene, config, { cwd: root }),
+      /Scene rejected:\n {2}beats\[1\]\.id/,
+    );
+    assert.ok(!existsSync(join(root, "out")), "nothing may be written");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("loadScene reports each schema problem with its path", () => {
+  const root = mkdtempSync(join(tmpdir(), "narrate-scene-"));
+  try {
+    const file = join(root, "s.json");
+    writeFileSync(
+      file,
+      JSON.stringify({
+        site: "x",
+        beats: [{ id: "a", say: "x", do: [{ action: "wait", ms: -1 }] }],
+      }),
+    );
+    assert.throws(
+      () => loadScene(root, file),
+      /Invalid scene .*s\.json:\n {2}beats\[0\]\.do\[0\]\.ms: /,
+    );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

@@ -7,6 +7,7 @@ import { checkEnv, initProject, setKey, setVoice } from "./project.js";
 import { readSecret } from "./secret.js";
 import { packageVersion, setup } from "./setup.js";
 import { listVoices } from "./tts/voices.js";
+import { allowedOriginProblems, formatProblems, validateSceneFile } from "./validate.js";
 
 const CONFIG_HELP =
   "project config file, layered over ~/.narrate/settings.json (default: .narrate/settings.local.json)";
@@ -61,15 +62,8 @@ program
     // Empty list = only the site's own origin (always allowed).
     if (o.sameOrigin) scene.allowedOrigins = [];
     if (o.site) scene.site = o.site;
-    for (const origin of o.allowOrigin ?? []) {
-      try {
-        new URL(origin);
-      } catch {
-        throw new Error(
-          `--allow-origin expects a URL such as http://localhost:3000, got "${origin}"`,
-        );
-      }
-    }
+    const [badOrigin] = allowedOriginProblems(o.allowOrigin);
+    if (badOrigin) throw new Error(`--allow-origin ${badOrigin.message}`);
     const out = await render(scene, config, {
       cwd,
       scenePath: o.scene,
@@ -82,6 +76,40 @@ program
     });
     console.log(`\n✅ Done → ${out}`);
   });
+
+program
+  .command("validate")
+  .description(
+    "Check a scene against the schema and render's own checks, without a browser, ffmpeg, TTS or network. Exits 1 if invalid.",
+  )
+  .requiredOption("-s, --scene <file>", "scene JSON file")
+  .option("--untrusted", "also apply the --untrusted rules (as render --untrusted would)")
+  .option("--allow-origin <url...>", "origins the caller allows, as with render --allow-origin")
+  .option("--site <url>", "check against this site instead of the scene's, as with render --site")
+  .option("--json", "print one JSON object: { ok, schemaVersion, problems: [{ path, message }] }")
+  .action(
+    (o: {
+      scene: string;
+      untrusted?: boolean;
+      allowOrigin?: string[];
+      site?: string;
+      json?: boolean;
+    }) => {
+      const result = validateSceneFile(process.cwd(), o.scene, {
+        untrusted: o.untrusted,
+        allowedOrigins: o.allowOrigin,
+        site: o.site,
+      });
+      if (o.json) {
+        console.log(JSON.stringify(result));
+      } else if (result.ok) {
+        console.log(`✅ Scene OK: ${o.scene} (schema version ${result.schemaVersion})`);
+      } else {
+        console.log(`❌ Invalid scene: ${o.scene}\n${formatProblems(result.problems)}`);
+      }
+      if (!result.ok) process.exitCode = 1;
+    },
+  );
 
 program
   .command("init")

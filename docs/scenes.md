@@ -108,6 +108,13 @@ applies to `fill` and `type` text only. Prefer a throwaway/test account here, an
 note the password field is masked in the recording but the value still passes
 through the page — `storageState` avoids that entirely.
 
+## Checking a scene
+
+`narrate validate --scene <file> [--json] [--untrusted]` checks a scene without
+rendering it; see [usage.md](./usage.md#validating-a-scene-without-rendering).
+`render` runs the same checks first and stops before any TTS or recording if one
+fails.
+
 ## Untrusted (generated) scenes
 
 When a scene is written by a tool or an agent, possibly from untrusted input such

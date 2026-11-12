@@ -142,6 +142,13 @@ export type Auth = z.infer<typeof AuthSchema>;
 export const WaitUntilSchema = z.enum(["load", "domcontentloaded", "networkidle"]);
 export type WaitUntil = z.infer<typeof WaitUntilSchema>;
 
+/**
+ * Version of the scene format, reported by `narrate validate`. Bump it only for
+ * incompatible changes (a field removed or its meaning changed), not for new
+ * optional fields.
+ */
+export const SCENE_SCHEMA_VERSION = 1;
+
 /** A full walkthrough: where to go, how big, and the ordered beats. */
 export const SceneSchema = z.object({
   name: z.string().default("scene"),
