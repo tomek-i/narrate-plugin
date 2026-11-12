@@ -77,6 +77,36 @@ Flags (`render`):
 | `--allow-origin <url…>` | allow these origins too and turn on the same-origin guard (the only way to allow more under `--untrusted`) |
 | `--storage-state <f>` | load this saved session; overrides the scene's `auth.storageState` |
 | `--same-origin`     | keep the browser on the site's origin; fail without a video if it leaves ([scenes.md](./scenes.md#same-origin-guard)) |
+| `--json`            | print one JSON result object on stdout; all progress goes to stderr (see below) |
+| `--log <f>`         | write the diagnostic log here (default `<out>/narrate.log`) |
+
+### Machine-readable render results (`--json`)
+
+For scripts and agents, `render --json` prints exactly one JSON object on stdout,
+whether the render succeeds or fails. Progress and warnings go to stderr. The exit
+code is 0 on success and 1 on failure.
+
+```json
+{ "ok": true, "video": "/abs/out/demo.mp4", "captions": "/abs/out/demo.vtt", "durationSec": 42.3,
+  "audio": { "present": true, "meanVolumeDb": -24.7, "silent": false }, "log": "/abs/out/narrate.log" }
+```
+
+```json
+{ "ok": false, "stage": "tts", "error": "No API key for gemini …", "log": "/abs/out/narrate.log" }
+```
+
+- Paths are absolute. `captions` is null when `output.vtt` is off.
+- `stage` says where it failed: `validate` (config, scene file or scene checks;
+  nothing was rendered), `setup` (ffmpeg or the browser), `tts`, `record` or `mux`.
+- `log` is the diagnostic log. It is null when a `validate` failure happens before
+  rendering starts and no `--log` was given (a rejected scene writes nothing to
+  the output folder), or when the log couldn't be written.
+- With `--json`, a video with no audio stream or silent audio is a failure
+  (stage `mux`) and the video is removed, so a caller never publishes a "narrated"
+  video without narration. The `mock` provider is exempt: its narration is silent
+  by design, and its result reports `"silent": true`.
+- A usage error (e.g. `--scene` missing) is reported by the argument parser as
+  plain text on stderr, with nothing on stdout and exit code 1.
 
 ### Validating a scene without rendering
 

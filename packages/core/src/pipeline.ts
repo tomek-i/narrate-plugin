@@ -104,7 +104,9 @@ export function parseDb(volume: string | null): number | null {
  * or a mean volume that's unmeasurable or near silence (≤ -90 dB, or -inf).
  */
 export function audioProblem(present: boolean, meanVolume: string | null): string | null {
-  if (!present) return "the final video has NO audio stream — the mux dropped the narration entirely";
+  if (!present) {
+    return "the final video has NO audio stream — the mux dropped the narration entirely";
+  }
   if (!meanVolume || /-(9\d(\.\d+)?|inf) dB/.test(meanVolume)) {
     return "the final video's audio track is silent (near -inf dB)";
   }
@@ -122,7 +124,8 @@ export async function render(scene: Scene, config: Config, opts: RenderOptions):
 /**
  * Full render, returning what was produced. A failure is thrown as a
  * `RenderError` naming the stage it failed in. The diagnostic log is written
- * either way (to `opts.logFile`, default `<out>/narrate.log`).
+ * either way (to `opts.logFile`, default `<out>/narrate.log`), except that a
+ * scene rejected before the render starts only writes it to `opts.logFile`.
  */
 export async function renderScene(
   scene: Scene,
@@ -159,7 +162,10 @@ export async function renderScene(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log(`❌ Failed while ${STAGE_LABEL[stage]}: ${message}`);
-    throw new RenderError(message, stage, writeLog(), { cause: err });
+    // A rejected scene writes nothing to the output folder, so a generated scene
+    // can't create files there; the log goes only where the caller asked for it.
+    const logged = stage === "validate" && !opts.logFile ? null : writeLog();
+    throw new RenderError(message, stage, logged, { cause: err });
   }
 
   async function run(): Promise<Omit<RenderResult, "log">> {

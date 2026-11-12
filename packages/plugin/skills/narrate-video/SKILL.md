@@ -105,7 +105,9 @@ Commands: `validate --scene <file> [--json] [--untrusted] [--site <url>] [--allo
 rendering; exit 0/1, with a path per problem), `init` (scaffold the project override file `.narrate/settings.local.json`;
 settings + keys normally come from the global `~/.narrate/settings.json`),
 `check` (validate ffmpeg + config; exit 0/1), `render --scene <file> [--out <dir>]
-[--provider <p>] [--voice <v>] [--same-origin] [--untrusted] [--no-env] [--storage-state <file>] [--site <url>] [--allow-origin <url…>]`, `auth <login-url> [--out <file>]` (log in once and
+[--provider <p>] [--voice <v>] [--same-origin] [--untrusted] [--no-env] [--storage-state <file>] [--site <url>] [--allow-origin <url…>] [--json] [--log <file>]`
+(`--json` prints one result object on stdout — `ok`, absolute `video`/`captions`/`log`
+paths, `audio` check, or on failure `stage` + `error`; see docs/usage.md), `auth <login-url> [--out <file>]` (log in once and
 save a session for authenticated scenes — see below), and `setup` (force-install
 Playwright + Chromium; normally automatic). TTS provider/key onboarding lives in the
 **`/narrate-setup`** skill.

@@ -23528,7 +23528,8 @@ function packageVersion() {
 function npm(args, cwd, extraEnv = {}) {
   execFileSync3(isWin ? "npm.cmd" : "npm", args, {
     cwd,
-    stdio: "inherit",
+    // Progress goes to stderr, so `render --json` keeps stdout to its JSON result.
+    stdio: ["ignore", 2, 2],
     shell: isWin,
     env: { ...process.env, ...extraEnv }
   });
@@ -23551,7 +23552,10 @@ function installChromium(log = console.log) {
   const cli = join2(root, "node_modules", "playwright", "cli.js");
   log("Downloading the Chromium browser\u2026");
   if (existsSync3(cli)) {
-    execFileSync3(process.execPath, [cli, "install", "chromium"], { cwd: root, stdio: "inherit" });
+    execFileSync3(process.execPath, [cli, "install", "chromium"], {
+      cwd: root,
+      stdio: ["ignore", 2, 2]
+    });
   } else {
     npm(["exec", "--", "playwright", "install", "chromium"], root);
   }
@@ -24306,7 +24310,7 @@ async function captureAuth(opts) {
 
 // src/pipeline.ts
 import { copyFileSync, existsSync as existsSync5, mkdirSync as mkdirSync3, rmSync as rmSync3, writeFileSync as writeFileSync4 } from "fs";
-import { join as join5, resolve as resolve4 } from "path";
+import { dirname as dirname5, join as join5, resolve as resolve4 } from "path";
 import { pathToFileURL as pathToFileURL3 } from "url";
 
 // src/tts/elevenlabs.ts
@@ -24732,151 +24736,217 @@ function buildVtt(beats, durations, leadInSec = 0) {
 }
 
 // src/pipeline.ts
+var RenderError = class extends Error {
+  constructor(message, stage, log, options) {
+    super(message, options);
+    this.stage = stage;
+    this.log = log;
+    this.name = "RenderError";
+  }
+  stage;
+  log;
+};
 function resolveSite(site, cwd) {
   if (/^(https?|file):\/\//i.test(site)) return site;
   return pathToFileURL3(resolve4(cwd, site)).href;
 }
-async function render(scene, config2, opts) {
+function parseDb(volume) {
+  const n = Number.parseFloat(volume ?? "");
+  return Number.isFinite(n) ? n : null;
+}
+function audioProblem(present, meanVolume2) {
+  if (!present) {
+    return "the final video has NO audio stream \u2014 the mux dropped the narration entirely";
+  }
+  if (!meanVolume2 || /-(9\d(\.\d+)?|inf) dB/.test(meanVolume2)) {
+    return "the final video's audio track is silent (near -inf dB)";
+  }
+  return null;
+}
+async function renderScene(scene, config2, opts) {
   const logLines = [];
   const log = (msg) => {
     logLines.push(msg);
     opts.onLog?.(msg);
   };
-  log(
-    `narrate render \u2014 scene "${scene.name}", provider "${config2.tts.provider}", platform ${process.platform}`
-  );
-  const untrusted = Boolean(opts.untrusted || scene.untrusted);
-  const problems = sceneProblems(
-    { ...scene, site: resolveSite(scene.site, opts.cwd) },
-    { untrusted, allowedOrigins: opts.allowedOrigins }
-  );
-  if (problems.length) {
-    throw new Error(
-      `Scene rejected${untrusted ? " (untrusted mode)" : ""}:
-${formatProblems(problems)}`
-    );
-  }
-  if (untrusted) {
-    log("Untrusted mode: on (no eval/uploadFile/off-site navigate, ${NAME} typed literally)");
-  }
-  const expandEnv = !untrusted && opts.expandEnv !== false;
-  ensureFfmpeg();
-  if (!await hasPlaywright()) {
-    log("First run: provisioning the headless browser (one-time)\u2026");
-    installPlaywrightPackage(log);
-    installChromium(log);
-  }
   const outDir = resolve4(opts.cwd, config2.output.dir);
-  const audioDir = join5(outDir, "audio");
-  mkdirSync3(audioDir, { recursive: true });
-  const provider = makeProvider(config2, opts.settingsFiles ?? settingsFilesChecked(opts.cwd));
-  const activeVoice = config2.tts.provider === "gemini" ? config2.tts.gemini.voice : config2.tts.provider === "elevenlabs" ? config2.tts.elevenlabs.voice : provider.name;
-  log(`Generating narration with "${provider.name}" (voice: ${activeVoice})\u2026`);
-  const durations = {};
-  const wavs = [];
-  for (const [i, beat] of scene.beats.entries()) {
-    const res = await provider.synth(beat.say, { voice: beat.voice });
-    const wavPath = join5(audioDir, `beat-${String(i + 1).padStart(3, "0")}.wav`);
-    normalizeToWav(res.audio, wavPath);
-    durations[beat.id] = probeDuration(wavPath);
-    wavs.push(wavPath);
-    log(`  ${beat.id}: ${durations[beat.id].toFixed(2)}s`);
+  const logPath = opts.logFile ? resolve4(opts.cwd, opts.logFile) : join5(outDir, "narrate.log");
+  const writeLog = () => {
+    try {
+      mkdirSync3(dirname5(logPath), { recursive: true });
+      writeFileSync4(logPath, `${logLines.join("\n")}
+`);
+      opts.onLog?.(`Diagnostic log: ${logPath}`);
+      return logPath;
+    } catch (err) {
+      opts.onLog?.(
+        `\u26A0\uFE0F  Could not write the diagnostic log ${logPath}: ${err instanceof Error ? err.message : err}`
+      );
+      return null;
+    }
+  };
+  let stage = "validate";
+  try {
+    const result = await run2();
+    writeLog();
+    return { ...result, log: logPath };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log(`\u274C Failed while ${STAGE_LABEL[stage]}: ${message}`);
+    const logged = stage === "validate" && !opts.logFile ? null : writeLog();
+    throw new RenderError(message, stage, logged, { cause: err });
   }
-  log("Recording walkthrough (headless)\u2026");
-  const recorder = new PlaywrightRecorder(outDir, config2, log);
-  if (untrusted && scene.allowedOrigins?.length) {
+  async function run2() {
     log(
-      `\u26A0\uFE0F  Untrusted mode: ignoring the scene's allowedOrigins (${scene.allowedOrigins.join(", ")}); pass --allow-origin to allow more origins.`
+      `narrate render \u2014 scene "${scene.name}", provider "${config2.tts.provider}", platform ${process.platform}`
     );
-  }
-  if (untrusted && scene.auth?.storageState && !opts.storageState) {
-    log(
-      `\u26A0\uFE0F  Untrusted mode: ignoring the scene's auth.storageState (${scene.auth.storageState}); pass --storage-state to start signed in.`
+    const untrusted = Boolean(opts.untrusted || scene.untrusted);
+    const problems = sceneProblems(
+      { ...scene, site: resolveSite(scene.site, opts.cwd) },
+      { untrusted, allowedOrigins: opts.allowedOrigins }
     );
-  }
-  const statePathIn = opts.storageState ?? (untrusted ? void 0 : scene.auth?.storageState);
-  let auth = statePathIn ? { storageState: statePathIn } : void 0;
-  if (auth?.storageState) {
-    const statePath = resolve4(opts.cwd, auth.storageState);
-    if (!existsSync5(statePath)) {
+    if (problems.length) {
       throw new Error(
-        `Auth storage state not found: ${statePath}. Capture it once with \`narrate auth <login-url> --out ${auth.storageState}\` (a browser opens; log in, then close it), then re-run. (The file holds session tokens \u2014 keep it gitignored.)`
+        `Scene rejected${untrusted ? " (untrusted mode)" : ""}:
+${formatProblems(problems)}`
       );
     }
-    auth = { storageState: statePath };
-    log(`Auth: loading storage state from ${statePath} (starting signed in)`);
-  }
-  const sceneToRecord = {
-    ...scene,
-    site: resolveSite(scene.site, opts.cwd),
-    auth,
-    // Untrusted scenes always record with the guard on, and can't widen it.
-    allowedOrigins: untrusted ? opts.allowedOrigins ?? [] : opts.allowedOrigins ?? scene.allowedOrigins
-  };
-  if (sceneToRecord.allowedOrigins) {
-    rmSync3(join5(outDir, `${scene.name}.${config2.output.format}`), { force: true });
-    log(
-      `Same-origin guard: on (allowed: ${[sceneToRecord.site, ...sceneToRecord.allowedOrigins].map(originOf).join(", ")})`
-    );
-  }
-  const { videoPath, leadInMs } = await recorder.record(sceneToRecord, durations, { expandEnv });
-  if (!videoPath) throw new Error("Recording produced no video file.");
-  log(`Recorded video: ${videoPath} (lead-in ${(leadInMs / 1e3).toFixed(3)}s)`);
-  log("Muxing narration onto video\u2026");
-  const narration = join5(outDir, "narration.wav");
-  concatWavs(wavs, narration, join5(outDir, "audio.txt"));
-  log(`Combined narration: ${narration} (mean volume ${meanVolume(narration) ?? "n/a"})`);
-  const finalOut = join5(outDir, `${scene.name}.${config2.output.format}`);
-  const mux = muxNarration({
-    video: videoPath,
-    audio: narration,
-    leadInSec: leadInMs / 1e3,
-    fps: config2.output.fps,
-    format: config2.output.format,
-    crf: config2.output.crf,
-    output: finalOut
-  });
-  log(`Mux command:
+    if (untrusted) {
+      log("Untrusted mode: on (no eval/uploadFile/off-site navigate, ${NAME} typed literally)");
+    }
+    const expandEnv = !untrusted && opts.expandEnv !== false;
+    if (untrusted && scene.allowedOrigins?.length) {
+      log(
+        `\u26A0\uFE0F  Untrusted mode: ignoring the scene's allowedOrigins (${scene.allowedOrigins.join(", ")}); pass --allow-origin to allow more origins.`
+      );
+    }
+    if (untrusted && scene.auth?.storageState && !opts.storageState) {
+      log(
+        `\u26A0\uFE0F  Untrusted mode: ignoring the scene's auth.storageState (${scene.auth.storageState}); pass --storage-state to start signed in.`
+      );
+    }
+    const statePathIn = opts.storageState ?? (untrusted ? void 0 : scene.auth?.storageState);
+    let auth = statePathIn ? { storageState: statePathIn } : void 0;
+    if (auth?.storageState) {
+      const statePath = resolve4(opts.cwd, auth.storageState);
+      if (!existsSync5(statePath)) {
+        throw new Error(
+          `Auth storage state not found: ${statePath}. Capture it once with \`narrate auth <login-url> --out ${auth.storageState}\` (a browser opens; log in, then close it), then re-run. (The file holds session tokens \u2014 keep it gitignored.)`
+        );
+      }
+      auth = { storageState: statePath };
+      log(`Auth: loading storage state from ${statePath} (starting signed in)`);
+    }
+    stage = "tts";
+    const provider = makeProvider(config2, opts.settingsFiles ?? settingsFilesChecked(opts.cwd));
+    stage = "setup";
+    ensureFfmpeg();
+    if (!await hasPlaywright()) {
+      log("First run: provisioning the headless browser (one-time)\u2026");
+      installPlaywrightPackage(log);
+      installChromium(log);
+    }
+    const audioDir = join5(outDir, "audio");
+    mkdirSync3(audioDir, { recursive: true });
+    stage = "tts";
+    const activeVoice = config2.tts.provider === "gemini" ? config2.tts.gemini.voice : config2.tts.provider === "elevenlabs" ? config2.tts.elevenlabs.voice : provider.name;
+    log(`Generating narration with "${provider.name}" (voice: ${activeVoice})\u2026`);
+    const durations = {};
+    const wavs = [];
+    for (const [i, beat] of scene.beats.entries()) {
+      const res = await provider.synth(beat.say, { voice: beat.voice });
+      const wavPath = join5(audioDir, `beat-${String(i + 1).padStart(3, "0")}.wav`);
+      normalizeToWav(res.audio, wavPath);
+      durations[beat.id] = probeDuration(wavPath);
+      wavs.push(wavPath);
+      log(`  ${beat.id}: ${durations[beat.id].toFixed(2)}s`);
+    }
+    stage = "record";
+    log("Recording walkthrough (headless)\u2026");
+    const recorder = new PlaywrightRecorder(outDir, config2, log);
+    const sceneToRecord = {
+      ...scene,
+      site: resolveSite(scene.site, opts.cwd),
+      auth,
+      // Untrusted scenes always record with the guard on, and can't widen it.
+      allowedOrigins: untrusted ? opts.allowedOrigins ?? [] : opts.allowedOrigins ?? scene.allowedOrigins
+    };
+    const finalOut = join5(outDir, `${scene.name}.${config2.output.format}`);
+    if (sceneToRecord.allowedOrigins) {
+      rmSync3(finalOut, { force: true });
+      log(
+        `Same-origin guard: on (allowed: ${[sceneToRecord.site, ...sceneToRecord.allowedOrigins].map(originOf).join(", ")})`
+      );
+    }
+    const { videoPath, leadInMs } = await recorder.record(sceneToRecord, durations, { expandEnv });
+    if (!videoPath) throw new Error("Recording produced no video file.");
+    log(`Recorded video: ${videoPath} (lead-in ${(leadInMs / 1e3).toFixed(3)}s)`);
+    stage = "mux";
+    log("Muxing narration onto video\u2026");
+    const narration = join5(outDir, "narration.wav");
+    concatWavs(wavs, narration, join5(outDir, "audio.txt"));
+    log(`Combined narration: ${narration} (mean volume ${meanVolume(narration) ?? "n/a"})`);
+    const mux = muxNarration({
+      video: videoPath,
+      audio: narration,
+      leadInSec: leadInMs / 1e3,
+      fps: config2.output.fps,
+      format: config2.output.format,
+      crf: config2.output.crf,
+      output: finalOut
+    });
+    log(`Mux command:
 ${mux.command}`);
-  log(`ffmpeg mux output (tail):
+    log(`ffmpeg mux output (tail):
 ${mux.stderr.trim().split("\n").slice(-12).join("\n")}`);
-  const audioOk = hasAudioStream(finalOut);
-  const finalVol = meanVolume(finalOut);
-  log(`Final video: ${finalOut}`);
-  log(`Final audio: stream=${audioOk ? "present" : "MISSING"}, mean volume ${finalVol ?? "n/a"}`);
-  const silent2 = !finalVol || /-(9\d(\.\d+)?|inf) dB/.test(finalVol);
-  if (!audioOk || silent2) {
-    log(
-      audioOk ? "\u26A0\uFE0F  Warning: the final video's audio track is silent (near -inf dB) even though narration.wav had sound \u2014 the mux lost the audio content." : "\u26A0\uFE0F  Warning: the final video has NO audio stream \u2014 the mux dropped the narration entirely."
-    );
-  }
-  if (config2.output.vtt) {
-    const vttPath = join5(outDir, `${scene.name}.vtt`);
-    writeFileSync4(vttPath, buildVtt(scene.beats, durations, leadInMs / 1e3));
-    log(`Captions: ${vttPath}`);
-  }
-  if (config2.output.keepScene && opts.scenePath) {
-    const src = resolve4(opts.cwd, opts.scenePath);
-    const dest = join5(outDir, `${scene.name}.scene.json`);
-    if (src === dest) {
-      log(`Scene retained: ${dest} (already in out dir)`);
-    } else {
-      try {
-        copyFileSync(src, dest);
-        log(`Scene retained: ${dest}`);
-      } catch (err) {
-        log(`\u26A0\uFE0F  Could not retain scene file: ${err instanceof Error ? err.message : err}`);
+    const audioOk = hasAudioStream(finalOut);
+    const finalVol = meanVolume(finalOut);
+    log(`Final video: ${finalOut}`);
+    log(`Final audio: stream=${audioOk ? "present" : "MISSING"}, mean volume ${finalVol ?? "n/a"}`);
+    const problem = audioProblem(audioOk, finalVol);
+    const silent2 = problem !== null;
+    if (problem) {
+      if (opts.requireAudio && config2.tts.provider !== "mock") {
+        rmSync3(finalOut, { force: true });
+        throw new Error(`${problem}; the video was removed.`);
+      }
+      log(`\u26A0\uFE0F  Warning: ${problem}.`);
+    }
+    let captions = null;
+    if (config2.output.vtt) {
+      captions = join5(outDir, `${scene.name}.vtt`);
+      writeFileSync4(captions, buildVtt(scene.beats, durations, leadInMs / 1e3));
+      log(`Captions: ${captions}`);
+    }
+    if (config2.output.keepScene && opts.scenePath) {
+      const src = resolve4(opts.cwd, opts.scenePath);
+      const dest = join5(outDir, `${scene.name}.scene.json`);
+      if (src === dest) {
+        log(`Scene retained: ${dest} (already in out dir)`);
+      } else {
+        try {
+          copyFileSync(src, dest);
+          log(`Scene retained: ${dest}`);
+        } catch (err) {
+          log(`\u26A0\uFE0F  Could not retain scene file: ${err instanceof Error ? err.message : err}`);
+        }
       }
     }
+    return {
+      video: finalOut,
+      captions,
+      durationSec: probeDuration(finalOut),
+      audio: { present: audioOk, meanVolumeDb: parseDb(finalVol), silent: silent2 }
+    };
   }
-  try {
-    writeFileSync4(join5(outDir, "narrate.log"), `${logLines.join("\n")}
-`);
-    opts.onLog?.(`Diagnostic log: ${join5(outDir, "narrate.log")}`);
-  } catch {
-  }
-  return finalOut;
 }
+var STAGE_LABEL = {
+  validate: "checking the scene",
+  setup: "preparing ffmpeg and the browser",
+  tts: "generating narration",
+  record: "recording the browser",
+  mux: "muxing the video"
+};
 
 // src/tts/voices.ts
 async function listVoices(config2, settingsFiles) {
@@ -24931,7 +25001,30 @@ program2.command("render").description("TTS \u2192 record \u2192 mux into one na
 ).option(
   "--storage-state <file>",
   "load this saved session (overrides the scene's auth.storageState; the only way under --untrusted)"
-).action(async (o) => {
+).option("--json", "print one JSON result object on stdout; all other output goes to stderr").option("--log <file>", "write the diagnostic log here (default: <out>/narrate.log)").action(async (o) => {
+  if (!o.json) {
+    const result = await renderCommand(o, (m) => console.log(m));
+    console.log(`
+\u2705 Done \u2192 ${result.video}`);
+    return;
+  }
+  try {
+    const result = await renderCommand(o, (m) => console.error(m));
+    console.log(JSON.stringify({ ok: true, ...result }));
+  } catch (err) {
+    console.log(
+      JSON.stringify({
+        ok: false,
+        // Errors before the render starts (config, scene file) are input problems.
+        stage: err instanceof RenderError ? err.stage : "validate",
+        error: err instanceof Error ? err.message : String(err),
+        log: err instanceof RenderError ? err.log : null
+      })
+    );
+    process.exitCode = 1;
+  }
+});
+async function renderCommand(o, say) {
   const cwd = process.cwd();
   const config2 = loadConfig(cwd, o.config);
   if (o.provider) config2.tts.provider = o.provider;
@@ -24945,7 +25038,7 @@ program2.command("render").description("TTS \u2192 record \u2192 mux into one na
   if (o.site) scene.site = o.site;
   const [badOrigin] = allowedOriginProblems(o.allowOrigin);
   if (badOrigin) throw new Error(`--allow-origin ${badOrigin.message}`);
-  const out = await render(scene, config2, {
+  return renderScene(scene, config2, {
     cwd,
     scenePath: o.scene,
     settingsFiles: settingsFilesChecked(cwd, o.config),
@@ -24953,11 +25046,12 @@ program2.command("render").description("TTS \u2192 record \u2192 mux into one na
     expandEnv: o.env,
     storageState: o.storageState,
     allowedOrigins: o.allowOrigin,
-    onLog: (m) => console.log(m)
+    logFile: o.log,
+    // A caller parsing --json output must never get a silent "narrated" video.
+    requireAudio: Boolean(o.json),
+    onLog: say
   });
-  console.log(`
-\u2705 Done \u2192 ${out}`);
-});
+}
 program2.command("validate").description(
   "Check a scene against the schema and render's own checks, without a browser, ffmpeg, TTS or network. Exits 1 if invalid."
 ).requiredOption("-s, --scene <file>", "scene JSON file").option("--untrusted", "also apply the --untrusted rules (as render --untrusted would)").option("--allow-origin <url...>", "origins the caller allows, as with render --allow-origin").option("--site <url>", "check against this site instead of the scene's, as with render --site").option("--json", "print one JSON object: { ok, schemaVersion, problems: [{ path, message }] }").action(
