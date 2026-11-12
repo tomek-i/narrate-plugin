@@ -47,6 +47,12 @@
       ],
       "additionalProperties": false
     },
+    "allowedOrigins": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
     "waitUntil": {
       "type": "string",
       "enum": [

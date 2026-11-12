@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
+import { existsSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 import { after, before, describe, test } from "node:test";
+import { OriginGuardError } from "../src/record/origin-guard.js";
 import { PlaywrightRecorder } from "../src/record/playwright.js";
 import { ConfigSchema, SceneSchema } from "../src/types.js";
 import { type TestServer, browserSkipReason, html, serve, tempDir } from "./helpers.js";
@@ -83,5 +86,122 @@ describe("page-load wait", { skip }, () => {
       { record: { waitUntil: "load", navigationTimeoutMs: 1500 } },
     );
     assert.equal(overridden.warnings.filter((w) => /never went idle/.test(w)).length, 1);
+  });
+});
+
+describe("same-origin guard", { skip }, () => {
+  let app: TestServer;
+  let other: TestServer;
+  before(async () => {
+    other = await serve((_req, res) => html(res, "<h1>Another site</h1>"));
+    app = await serve((req, res) => {
+      switch (req.url) {
+        case "/":
+          html(res, `<a id="out" href="${other.url}/">out</a><a id="in" href="/inside">in</a>`);
+          return;
+        case "/with-image":
+          html(res, `<img src="${other.url}/pixel.png"><p>page</p>`);
+          return;
+        case "/redirect-out":
+          res.writeHead(302, { location: `${other.url}/landing` });
+          res.end();
+          return;
+        case "/inside":
+          res.writeHead(302, { location: "/with-image" });
+          res.end();
+          return;
+        case "/timed":
+          html(
+            res,
+            `<script>setTimeout(() => { location.href = "${other.url}/"; }, 1500);</script>`,
+          );
+          return;
+        default:
+          html(res, "not found", 404);
+      }
+    });
+  });
+  after(async () => {
+    await app.close();
+    await other.close();
+  });
+
+  /** Record and return the outcome plus whatever is left in the out dir. */
+  async function record(scene: object, beatSeconds = 0.5) {
+    const out = tempDir("narrate-guard-");
+    const warnings: string[] = [];
+    try {
+      const recorder = new PlaywrightRecorder(out.dir, ConfigSchema.parse({}), (m) =>
+        warnings.push(m),
+      );
+      let error: unknown;
+      try {
+        await recorder.record(SceneSchema.parse(scene), { a: beatSeconds });
+      } catch (err) {
+        error = err;
+      }
+      const videoDir = join(out.dir, "video");
+      const videos = existsSync(videoDir) ? readdirSync(videoDir) : [];
+      return { error, warnings, videos };
+    } finally {
+      out.cleanup();
+    }
+  }
+
+  const guarded = (path: string, steps: object[] = []) => ({
+    site: `${app.url}${path}`,
+    allowedOrigins: [app.url],
+    beats: [{ id: "a", say: "x", do: steps }],
+  });
+
+  test("blocks requests to other origins without failing the render", async () => {
+    other.hits.length = 0;
+    const r = await record(guarded("/with-image"));
+    assert.equal(r.error, undefined);
+    assert.deepEqual(other.hits, []);
+    assert.ok(
+      r.warnings.some((w) => w.includes(`${other.url}/pixel.png`)),
+      r.warnings.join("\n"),
+    );
+  });
+
+  test("follows a redirect that stays on the site", async () => {
+    const r = await record(guarded("/inside"));
+    assert.equal(r.error, undefined);
+    assert.equal(r.videos.length, 1);
+  });
+
+  for (const [name, path, steps, seconds] of [
+    [
+      "a server 3xx to another origin",
+      "/",
+      [{ action: "navigate", url: `PLACEHOLDER/redirect-out` }],
+      0.5,
+    ],
+    ["a link click to another origin", "/", [{ action: "click", selector: "#out" }], 0.5],
+    ["a timed client redirect during a beat", "/timed", [], 3],
+  ] as const) {
+    test(`${name} fails the render and leaves no video`, async () => {
+      other.hits.length = 0;
+      const resolved = steps.map((s) =>
+        "url" in s ? { ...s, url: s.url.replace("PLACEHOLDER", app.url) } : s,
+      );
+      const r = await record(guarded(path, resolved), seconds);
+      assert.ok(r.error instanceof OriginGuardError, String(r.error));
+      assert.match((r.error as Error).message, /beat "a"/);
+      assert.ok((r.error as OriginGuardError).blockedUrl.startsWith(other.url));
+      assert.deepEqual(other.hits, [], "the other server must receive no request");
+      assert.deepEqual(r.videos, [], "no recording may be left behind");
+    });
+  }
+
+  test("without allowedOrigins, behaviour is unchanged", async () => {
+    other.hits.length = 0;
+    const r = await record({
+      site: `${app.url}/`,
+      beats: [{ id: "a", say: "x", do: [{ action: "click", selector: "#out" }] }],
+    });
+    assert.equal(r.error, undefined);
+    assert.deepEqual(other.hits, ["/"]);
   });
 });

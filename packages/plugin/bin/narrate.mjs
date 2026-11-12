@@ -22789,6 +22789,13 @@ function date4(params) {
 }
 
 // src/types.ts
+function isAbsoluteUrl(s) {
+  try {
+    return Boolean(new URL(s));
+  } catch {
+    return false;
+  }
+}
 var StepSchema = external_exports.discriminatedUnion("action", [
   // --- timing ---
   external_exports.object({ action: external_exports.literal("wait"), ms: external_exports.number().positive() }),
@@ -22897,6 +22904,18 @@ var SceneSchema = external_exports.object({
   theme: external_exports.enum(["light", "dark", "system"]).optional(),
   /** Start already authenticated by loading a saved Playwright storage state. */
   auth: AuthSchema.optional(),
+  /**
+   * Keep the recorded browser on these origins (e.g. `http://localhost:3000`);
+   * the origin of `site` is always allowed. Requests to any other origin are
+   * blocked, and a navigation to one (link, redirect, timed client redirect)
+   * fails the render without writing a video. Not set = no guard. The
+   * `--same-origin` render flag sets it to just the site's origin.
+   */
+  allowedOrigins: external_exports.array(
+    external_exports.string().refine(isAbsoluteUrl, {
+      message: "must be an absolute URL, e.g. http://localhost:3000"
+    })
+  ).optional(),
   /** Override `record.waitUntil` from the config for this scene. */
   waitUntil: WaitUntilSchema.optional(),
   beats: external_exports.array(BeatSchema).min(1)
@@ -23448,6 +23467,7 @@ function checkEnv(config2, layers = [], settingsFiles) {
 }
 
 // src/record/playwright.ts
+import { rmSync } from "fs";
 import { join as join3 } from "path";
 
 // src/env.ts
@@ -23522,6 +23542,97 @@ async function setup(log = console.log) {
   else installPlaywrightPackage(log);
   log("Setup complete. A browser will be resolved on first render.");
 }
+
+// src/record/origin-guard.ts
+function originOf(url2) {
+  const u = new URL(url2);
+  return u.protocol === "file:" ? "file://" : u.origin;
+}
+var LOCAL_SCHEMES = /* @__PURE__ */ new Set(["about:", "data:", "blob:"]);
+var OriginGuardError = class extends Error {
+  constructor(message, blockedUrl) {
+    super(message);
+    this.blockedUrl = blockedUrl;
+    this.name = "OriginGuardError";
+  }
+  blockedUrl;
+};
+var OriginGuard = class {
+  constructor(origins, warn = () => {
+  }) {
+    this.warn = warn;
+    this.allowed = new Set(origins.map(originOf));
+  }
+  warn;
+  allowed;
+  violation = null;
+  blockedOther = /* @__PURE__ */ new Set();
+  allows(url2) {
+    let u;
+    try {
+      u = new URL(url2);
+    } catch {
+      return false;
+    }
+    if (LOCAL_SCHEMES.has(u.protocol)) return true;
+    return this.allowed.has(originOf(url2));
+  }
+  async install(context, page) {
+    await context.route("**/*", (route) => this.handle(route, page));
+  }
+  async handle(route, page) {
+    const req = route.request();
+    const url2 = req.url();
+    const isMainNav = req.isNavigationRequest() && req.frame() === page.mainFrame();
+    if (!this.allows(url2)) {
+      this.block(url2, isMainNav);
+      await route.abort("blockedbyclient");
+      return;
+    }
+    if (!isMainNav) {
+      await route.continue();
+      return;
+    }
+    let response;
+    try {
+      response = await route.fetch({ maxRedirects: 0 });
+    } catch {
+      await route.abort("failed");
+      return;
+    }
+    const location = response.headers().location;
+    if (response.status() >= 300 && response.status() < 400 && location) {
+      const target = new URL(location, url2).href;
+      if (!this.allows(target)) {
+        this.block(target, true);
+        await route.abort("blockedbyclient");
+        return;
+      }
+    }
+    await route.fulfill({ response });
+  }
+  block(url2, isMainNav) {
+    if (isMainNav) {
+      this.violation ??= url2;
+    } else if (!this.blockedOther.has(url2)) {
+      this.blockedOther.add(url2);
+      this.warn(`Blocked a request to another origin: ${url2}`);
+    }
+  }
+  /**
+   * Fail if the page left (or tried to leave) the allowed origins. `where` names
+   * the step or beat for the error message.
+   */
+  check(page, where) {
+    const current = page.url();
+    const blocked = this.violation ?? (this.allows(current) ? null : current);
+    if (!blocked) return;
+    throw new OriginGuardError(
+      `Same-origin guard: ${where} tried to leave the allowed origins (${[...this.allowed].join(", ")}) for ${blocked}. No video was written, because the recording may show the other page.`,
+      blocked
+    );
+  }
+};
 
 // src/record/overlay.ts
 var OVERLAY_SCRIPT = String.raw`
@@ -23757,12 +23868,21 @@ var PlaywrightRecorder = class {
       warn: (msg) => this.log(`\u26A0\uFE0F  ${msg}`)
     };
     page.setDefaultNavigationTimeout(pl.timeoutMs);
+    const guard = scene.allowedOrigins ? new OriginGuard([scene.site, ...scene.allowedOrigins], pl.warn) : null;
+    if (guard) await guard.install(context, page);
+    const guarded = async (where, fn) => {
+      try {
+        await fn();
+      } catch (err) {
+        guard?.check(page, where);
+        throw err;
+      }
+      guard?.check(page, where);
+    };
     try {
-      await loadPage(
-        page,
-        (waitUntil) => page.goto(scene.site, { waitUntil }),
-        pl,
-        "Opening the site"
+      await guarded(
+        "opening the site",
+        () => loadPage(page, (waitUntil) => page.goto(scene.site, { waitUntil }), pl, "Opening the site")
       );
       await page.evaluate(() => window.scrollTo(0, 0));
       await page.waitForTimeout(400);
@@ -23781,7 +23901,12 @@ var PlaywrightRecorder = class {
             beat.focusLabel
           );
         }
-        for (const step of beat.do) await runStep(page, step, fx, pl);
+        for (const [i, step] of beat.do.entries()) {
+          await guarded(
+            `beat "${beat.id}" step ${i + 1} (${step.action})`,
+            () => runStep(page, step, fx, pl)
+          );
+        }
         const remaining = targetEnd - (Date.now() - t0);
         if (remaining > 0) await page.waitForTimeout(remaining);
         else if (remaining < -150) {
@@ -23789,12 +23914,21 @@ var PlaywrightRecorder = class {
             `beat "${beat.id}" visuals overran narration by ${-remaining}ms; shorten its steps or lengthen the narration.`
           );
         }
+        guard?.check(page, `beat "${beat.id}"`);
         if (fx.highlight) await clearHighlight(page);
       }
       const video = page.video();
       await context.close();
       const videoPath = video ? await video.path() : "";
       return { videoPath, leadInMs };
+    } catch (err) {
+      if (err instanceof OriginGuardError) {
+        const video = page.video();
+        await context.close().catch(() => {
+        });
+        if (video) rmSync(await video.path(), { force: true });
+      }
+      throw err;
     } finally {
       await browser.close();
     }
@@ -24195,7 +24329,7 @@ var MockProvider = class {
 
 // src/tts/os.ts
 import { execFileSync as execFileSync4 } from "child_process";
-import { mkdtempSync, readFileSync as readFileSync5, rmSync, writeFileSync as writeFileSync3 } from "fs";
+import { mkdtempSync, readFileSync as readFileSync5, rmSync as rmSync2, writeFileSync as writeFileSync3 } from "fs";
 import { tmpdir } from "os";
 import { join as join4 } from "path";
 var OsTtsProvider = class {
@@ -24232,7 +24366,7 @@ function scratch() {
     dir,
     txt: join4(dir, "in.txt"),
     out: (ext) => join4(dir, `out.${ext}`),
-    clean: () => rmSync(dir, { recursive: true, force: true })
+    clean: () => rmSync2(dir, { recursive: true, force: true })
   };
 }
 function windows(text, voice) {
@@ -24399,6 +24533,11 @@ async function render(scene, config2, opts) {
     log(`Auth: loading storage state from ${statePath} (starting signed in)`);
   }
   const sceneToRecord = { ...scene, site: resolveSite(scene.site, opts.cwd), auth };
+  if (sceneToRecord.allowedOrigins) {
+    log(
+      `Same-origin guard: on (allowed: ${[sceneToRecord.site, ...sceneToRecord.allowedOrigins].map(originOf).join(", ")})`
+    );
+  }
   const { videoPath, leadInMs } = await recorder.record(sceneToRecord, durations);
   if (!videoPath) throw new Error("Recording produced no video file.");
   log(`Recorded video: ${videoPath} (lead-in ${(leadInMs / 1e3).toFixed(3)}s)`);
@@ -24496,7 +24635,10 @@ async function listVoices(config2, settingsFiles) {
 var CONFIG_HELP = "project config file, layered over ~/.narrate/settings.json (default: .narrate/settings.local.json)";
 var program2 = new Command();
 program2.name("narrate").description("Generate a narrated walkthrough video of a website.").version(packageVersion());
-program2.command("render").description("TTS \u2192 record \u2192 mux into one narrated video.").requiredOption("-s, --scene <file>", "scene JSON file").option("-c, --config <file>", CONFIG_HELP).option("-o, --out <dir>", "output directory (overrides config output.dir)").option("--provider <name>", "override TTS provider (gemini|elevenlabs|os|mock)").option("--voice <name>", "override voice").action(async (o) => {
+program2.command("render").description("TTS \u2192 record \u2192 mux into one narrated video.").requiredOption("-s, --scene <file>", "scene JSON file").option("-c, --config <file>", CONFIG_HELP).option("-o, --out <dir>", "output directory (overrides config output.dir)").option("--provider <name>", "override TTS provider (gemini|elevenlabs|os|mock)").option("--voice <name>", "override voice").option(
+  "--same-origin",
+  "keep the browser on the scene site's origin; fail without writing a video if it leaves"
+).action(async (o) => {
   const cwd = process.cwd();
   const config2 = loadConfig(cwd, o.config);
   if (o.provider) config2.tts.provider = o.provider;
@@ -24506,6 +24648,7 @@ program2.command("render").description("TTS \u2192 record \u2192 mux into one na
   }
   if (o.out) config2.output.dir = o.out;
   const scene = loadScene(cwd, o.scene);
+  if (o.sameOrigin) scene.allowedOrigins = [scene.site];
   const out = await render(scene, config2, {
     cwd,
     scenePath: o.scene,

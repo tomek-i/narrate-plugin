@@ -1,8 +1,10 @@
+import { rmSync } from "node:fs";
 import { join } from "node:path";
 import type { Browser, BrowserType, Page } from "playwright";
 import { interpolateEnv } from "../env.js";
 import { installChromium } from "../setup.js";
 import type { Config, Durations, OverlayConfig, Scene, Step, WaitUntil } from "../types.js";
+import { OriginGuard, OriginGuardError } from "./origin-guard.js";
 import { OVERLAY_SCRIPT } from "./overlay.js";
 import type { RecordResult, Recorder } from "./recorder.js";
 
@@ -122,13 +124,26 @@ export class PlaywrightRecorder implements Recorder {
     };
     // Covers goto/reload/back/forward/waitForURL; load-state waits pass it explicitly.
     page.setDefaultNavigationTimeout(pl.timeoutMs);
+    // Opt-in: keep the browser on the scene's site (its origin is always allowed).
+    const guard = scene.allowedOrigins
+      ? new OriginGuard([scene.site, ...scene.allowedOrigins], pl.warn)
+      : null;
+    if (guard) await guard.install(context, page);
+    /** Run `fn`, then fail if the page left the allowed origins during it. A
+     *  blocked navigation usually makes `fn` throw too; the guard error wins. */
+    const guarded = async (where: string, fn: () => Promise<void>) => {
+      try {
+        await fn();
+      } catch (err) {
+        guard?.check(page, where);
+        throw err;
+      }
+      guard?.check(page, where);
+    };
 
     try {
-      await loadPage(
-        page,
-        (waitUntil) => page.goto(scene.site, { waitUntil }),
-        pl,
-        "Opening the site",
+      await guarded("opening the site", () =>
+        loadPage(page, (waitUntil) => page.goto(scene.site, { waitUntil }), pl, "Opening the site"),
       );
       await page.evaluate(() => window.scrollTo(0, 0));
       await page.waitForTimeout(400); // let fonts/layout settle
@@ -151,7 +166,11 @@ export class PlaywrightRecorder implements Recorder {
             beat.focusLabel,
           );
         }
-        for (const step of beat.do) await runStep(page, step, fx, pl);
+        for (const [i, step] of beat.do.entries()) {
+          await guarded(`beat "${beat.id}" step ${i + 1} (${step.action})`, () =>
+            runStep(page, step, fx, pl),
+          );
+        }
         // Pad (or warn) so the beat ends exactly on the audio boundary.
         const remaining = targetEnd - (Date.now() - t0);
         if (remaining > 0) await page.waitForTimeout(remaining);
@@ -161,6 +180,8 @@ export class PlaywrightRecorder implements Recorder {
             `beat "${beat.id}" visuals overran narration by ${-remaining}ms; shorten its steps or lengthen the narration.`,
           );
         }
+        // A timed client-side redirect can fire while the beat is held.
+        guard?.check(page, `beat "${beat.id}"`);
         // Clear everything between beats for a predictable, clean slate.
         if (fx.highlight) await clearHighlight(page);
       }
@@ -169,6 +190,14 @@ export class PlaywrightRecorder implements Recorder {
       await context.close(); // finalizes the webm
       const videoPath = video ? await video.path() : "";
       return { videoPath, leadInMs };
+    } catch (err) {
+      // The raw recording may already show the other site: never leave it behind.
+      if (err instanceof OriginGuardError) {
+        const video = page.video();
+        await context.close().catch(() => {});
+        if (video) rmSync(await video.path(), { force: true });
+      }
+      throw err;
     } finally {
       await browser.close();
     }

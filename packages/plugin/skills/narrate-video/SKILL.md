@@ -104,7 +104,7 @@ node "${CLAUDE_PLUGIN_ROOT}/bin/narrate.mjs" <command> …
 Commands: `init` (scaffold the project override file `.narrate/settings.local.json`;
 settings + keys normally come from the global `~/.narrate/settings.json`),
 `check` (validate ffmpeg + config; exit 0/1), `render --scene <file> [--out <dir>]
-[--provider <p>] [--voice <v>]`, `auth <login-url> [--out <file>]` (log in once and
+[--provider <p>] [--voice <v>] [--same-origin]`, `auth <login-url> [--out <file>]` (log in once and
 save a session for authenticated scenes — see below), and `setup` (force-install
 Playwright + Chromium; normally automatic). TTS provider/key onboarding lives in the
 **`/narrate-setup`** skill.
@@ -190,6 +190,7 @@ Playwright + Chromium; normally automatic). TTS provider/key onboarding lives in
   "viewport": { "width": 1440, "height": 900 },
   "theme": "dark",                         // optional: light | dark | system
   "waitUntil": "load",                     // optional: load | domcontentloaded | networkidle (default)
+  "allowedOrigins": ["http://localhost:3000"],  // optional: same-origin guard (see Notes)
   "auth": { "storageState": ".narrate/auth.json" },  // optional: start signed in (see Authenticated walkthroughs)
   "beats": [
     {
@@ -283,6 +284,12 @@ Two roles — keep them separate so it doesn't look random:
   you run it with a filtered environment, pass those through. A missing-key
   error lists every settings file and variable it checked. Full table:
   `docs/configuration.md#environment-variables` in the narrate repo.
+- **Same-origin guard:** pass `--same-origin` to `render` (or set the scene's
+  `allowedOrigins`) whenever the video will be published, so it can never show
+  another site. Requests to other origins are blocked; if the page navigates
+  away (link, redirect, timed redirect), the render fails, naming the beat/step
+  and URL, and no video is written. Fix the scene (or add the origin to
+  `allowedOrigins` if it's legitimately part of the app) and re-render.
 - **Page loads:** each navigation (and the settle after clicks) waits for
   `networkidle` by default. Apps that poll (dashboards, dev servers with HMR,
   analytics) never go idle: the render still works but logs a "never went idle"
