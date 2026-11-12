@@ -203,16 +203,17 @@ A beat's `say` text can carry short bracketed cues that change how it's spoken:
 { "id": "intro", "say": "[excited] Welcome to Aurora! [short pause] Let's take a look." }
 ```
 
-- **Gemini** acts on them as style cues.
+- **Gemini** treats them as style cues (how well depends on the tag; check the result).
 - **ElevenLabs** acts on them only with a v3 model (`tts.elevenlabs.model:
   "eleven_v3"`). Older models would read them out, so narrate removes them first.
 - **The OS voice and `mock`** get the text without them.
 - **Captions** (`output.vtt`) never show them.
 
-A tag is a word or a few words in square brackets (letters, spaces, `'` and `-`,
-up to 40 characters). Write UI labels in quotes, not brackets (`click "Save"`,
-not `click [Save]`), or they're treated as tags. A beat needs words besides its
-tags.
+A tag is lowercase: a word or a few words in square brackets (lowercase letters
+in any script, spaces, `'` and `-`, up to 40 characters). So keys and labels such
+as `[Enter]` or `[Save]` stay part of the narration, and so does a markdown link
+`[text](url)`; a lowercase label like `[save]` would be taken as a tag. A beat
+with tags needs words besides them.
 
 ## Theme
 

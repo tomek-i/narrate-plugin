@@ -4,7 +4,7 @@ import { pathToFileURL } from "node:url";
 import type { z } from "zod";
 import { formatPath, resolveSceneSite } from "./config.js";
 import { originOf } from "./record/origin-guard.js";
-import { stripVoiceTags } from "./tts/tags.js";
+import { hasVoiceTags, stripVoiceTags } from "./tts/tags.js";
 import { SCENE_SCHEMA_VERSION, type Scene, SceneSchema } from "./types.js";
 
 /** One thing wrong with a scene, located by its JSON path (e.g. `beats[2].do[0]`). */
@@ -146,8 +146,8 @@ export function schemaProblems(error: z.ZodError): Problem[] {
 
 /**
  * Checks beyond the schema that `render` applies to every scene: beat ids must
- * be unique (each beat's audio is stored and timed by its id), each `say` must
- * have words besides voice tags, plus the
+ * be unique (each beat's audio is stored and timed by its id), a `say` with
+ * voice tags must also have words, plus the
  * untrusted-mode rules when `untrusted` is on (or the scene sets it).
  */
 export function sceneProblems(
@@ -167,7 +167,8 @@ export function sceneProblems(
       seen.set(beat.id, b);
     }
     // Voices that don't understand tags get the text without them: nothing left to say.
-    if (!stripVoiceTags(beat.say)) {
+    // (An empty `say` is allowed, as before; only tags with no words is a mistake.)
+    if (hasVoiceTags(beat.say) && !stripVoiceTags(beat.say)) {
       problems.push({
         path: `beats[${b}].say`,
         message: "has only voice tags like [excited]; add words to say",

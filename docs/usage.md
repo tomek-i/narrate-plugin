@@ -148,7 +148,7 @@ narrate validate --scene scene.json --untrusted --site http://localhost:3000  # 
 ```
 
 `validate` runs the same checks `render` does before it starts (JSON syntax, the
-scene schema, unique beat ids, and the `--untrusted` rules when asked for or set
+scene schema, unique beat ids, no `say` that is only voice tags, and the `--untrusted` rules when asked for or set
 in the scene), without a browser, ffmpeg, a TTS voice or any network access. Use
 it to check a generated scene before spending time and TTS credits on a render,
 or in a generator's tests to catch drift from narrate's schema.

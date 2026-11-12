@@ -228,11 +228,11 @@ the **`/narrate-setup`** skill.
 ```
 
 **Voice tags:** cues in square brackets in `say`, like `[excited]`, `[whispers]`
-or `[short pause]`, make the narration more expressive with Gemini or an
-ElevenLabs v3 model (`tts.elevenlabs.model: "eleven_v3"`). Other voices get the
-text without them, and captions never show them. Use them sparingly (a cue at the
-start of a beat, or before a key point), and write UI labels in quotes, not
-brackets, or they're taken as tags.
+or `[short pause]` (always lowercase), make the narration more expressive with
+Gemini (results vary by tag) or an ElevenLabs v3 model (`tts.elevenlabs.model:
+"eleven_v3"`). Other voices get the text without them, and captions never show
+them. Use them sparingly (a cue at the start of a beat, or before a key point).
+Capitalized brackets like `[Enter]` or `[Save]` aren't tags and are spoken.
 
 Use `focus` to spotlight whatever the narration is talking about — it highlights
 for the beat's whole duration and clears automatically. The synthetic cursor and

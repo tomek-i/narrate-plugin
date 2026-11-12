@@ -24700,9 +24700,20 @@ function makeProvider(config2, settingsFiles) {
 }
 
 // src/tts/tags.ts
-var TAG = /\[[A-Za-z][A-Za-z '-]{0,39}\]/g;
+var TAG = /\[\p{Ll}[\p{Ll} '-]{0,39}\](?!\()/u;
+var TAG_WITH_SPACE = new RegExp(`\\s*${TAG.source}\\s*`, "gu");
+function hasVoiceTags(text) {
+  return TAG.test(text);
+}
 function stripVoiceTags(text) {
-  return text.replace(TAG, " ").replace(/\s+([,.!?;:])/g, "$1").replace(/\s{2,}/g, " ").trim();
+  return text.replace(TAG_WITH_SPACE, (match, offset, whole) => {
+    const before = whole.slice(0, offset);
+    const after = whole.slice(offset + match.length);
+    if (!before || !after || /^[,.!?;:…]/u.test(after) || /["'(“‘«]$/u.test(before)) {
+      return "";
+    }
+    return " ";
+  }).trim();
 }
 
 // src/validate.ts
@@ -24814,7 +24825,7 @@ function sceneProblems(scene, opts = {}) {
     } else {
       seen.set(beat.id, b);
     }
-    if (!stripVoiceTags(beat.say)) {
+    if (hasVoiceTags(beat.say) && !stripVoiceTags(beat.say)) {
       problems.push({
         path: `beats[${b}].say`,
         message: "has only voice tags like [excited]; add words to say"
