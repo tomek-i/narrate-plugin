@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.24.1](https://github.com/tomek-i/narrate-plugin/compare/v0.24.0...v0.24.1) (2026-11-12)
+
+
+### Bug Fixes
+
+* gemini key header, unknown-key warnings, browser tests in CI ([#69](https://github.com/tomek-i/narrate-plugin/issues/69)) ([70bbddb](https://github.com/tomek-i/narrate-plugin/commit/70bbddb16be77569d174e8735f007fa898732027))
+
 ## [0.24.0](https://github.com/tomek-i/narrate-plugin/compare/v0.23.0...v0.24.0) (2026-11-12)
 
 
