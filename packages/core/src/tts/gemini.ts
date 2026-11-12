@@ -16,10 +16,12 @@ export class GeminiProvider implements TTSProvider {
 
   async synth(text: string, opts?: SynthOptions): Promise<SynthResult> {
     const voice = opts?.voice ?? this.voice;
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent?key=${this.key}`;
+    // The key goes in a header, not the query string, so it never shows up in URLs that
+    // proxies, request logs or error messages record.
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent`;
     const res = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "x-goog-api-key": this.key },
       body: JSON.stringify({
         contents: [{ parts: [{ text }] }],
         generationConfig: {
