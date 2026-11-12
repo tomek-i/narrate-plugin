@@ -2,6 +2,7 @@ import { copyFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { settingsFilesChecked } from "./config.js";
+import { interrupted, onInterrupt } from "./interrupt.js";
 import {
   concatWavs,
   ensureFfmpeg,
@@ -161,6 +162,8 @@ export async function renderScene(
     const result = await run();
     return { ...result, log: writeLog() };
   } catch (err) {
+    // Interrupted: the failure is only the teardown, not something to report.
+    if (interrupted()) throw err;
     const message = err instanceof Error ? err.message : String(err);
     log(`❌ Failed while ${STAGE_LABEL[stage]}: ${message}`);
     // A rejected scene writes nothing to the output folder, so a generated scene
@@ -294,11 +297,18 @@ export async function renderScene(
 
     // 3. Concatenate narration and overlay onto the trimmed video.
     stage = "mux";
+    // An interrupt during the recording's last moments can let it finish: don't
+    // start ffmpeg for a render that is being torn down.
+    if (interrupted()) throw new Error("interrupted");
     log("Muxing narration onto video…");
     const narration = join(outDir, "narration.wav");
     concatWavs(wavs, narration, join(outDir, "audio.txt"));
     log(`Combined narration: ${narration} (mean volume ${meanVolume(narration) ?? "n/a"})`);
-    const mux = muxNarration({
+    // From here a video is being written at finalOut: an interrupt or a failed
+    // mux must not leave a partial one behind.
+    const removePartial = () => rmSync(finalOut, { force: true, maxRetries: 10, retryDelay: 100 });
+    const offInterrupt = onInterrupt(removePartial);
+    const mux = await muxNarration({
       video: videoPath,
       audio: narration,
       leadInSec: leadInMs / 1000,
@@ -306,7 +316,12 @@ export async function renderScene(
       format: config.output.format,
       crf: config.output.crf,
       output: finalOut,
+    }).catch((err) => {
+      offInterrupt();
+      removePartial();
+      throw err;
     });
+    offInterrupt();
     log(`Mux command:\n${mux.command}`);
     log(`ffmpeg mux output (tail):\n${mux.stderr.trim().split("\n").slice(-12).join("\n")}`);
 
