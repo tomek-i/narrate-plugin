@@ -5,6 +5,7 @@ import {
   SETTINGS_FILE,
   globalSettingsPath,
   hasApiKey,
+  keySources,
   loadConfig,
   settingOrigin,
   settingsPath,
@@ -172,7 +173,11 @@ export interface CheckResult {
  * Deterministic preflight: ffmpeg present, config readable, and an API key set
  * for the configured provider (os/mock need none). No LLM, no network.
  */
-export function checkEnv(config: Config, layers: ConfigLayer[] = []): CheckResult {
+export function checkEnv(
+  config: Config,
+  layers: ConfigLayer[] = [],
+  settingsFiles?: string[],
+): CheckResult {
   const lines: string[] = [];
   let ok = true;
 
@@ -212,7 +217,7 @@ export function checkEnv(config: Config, layers: ConfigLayer[] = []): CheckResul
   } else {
     ok = false;
     lines.push(
-      `TTS key: MISSING — run \`narrate set-key ${provider} <key>\` (saves to ${globalSettingsPath()}; add --project for a project-only key in .narrate/${SETTINGS_FILE}), or use --provider os for the OS voice / mock for silent`,
+      `TTS key: MISSING — checked ${keySources(config, settingsFiles).join(", ")}. Run \`narrate set-key ${provider}\` (saves to ${globalSettingsPath()}; add --project for a project-only key in .narrate/${SETTINGS_FILE}), or use --provider os for the OS voice / mock for silent`,
     );
   }
 

@@ -164,9 +164,72 @@ export function hasApiKey(config: Config): boolean {
   return Boolean(envName && process.env[envName]?.trim());
 }
 
+/**
+ * The settings files consulted for a run, in priority order (lowest first): the
+ * global file, then the project file (an explicit `--config`, else the first
+ * existing default/legacy location, else the default path). Missing files are
+ * included — the list answers "where did narrate look?" for error messages.
+ */
+export function settingsFilesChecked(
+  cwd: string,
+  configPath?: string,
+  globalPath: string = globalSettingsPath(),
+): string[] {
+  const project = configPath
+    ? resolve(cwd, configPath)
+    : (projectSettingsFile(cwd) ?? settingsPath(cwd));
+  return resolve(project) === resolve(globalPath) ? [globalPath] : [globalPath, project];
+}
+
+const PROVIDER_LABEL: Record<KeyedProvider, string> = {
+  gemini: "Gemini",
+  elevenlabs: "ElevenLabs",
+};
+
+/** What one settings file holds for `tts.<provider>.key`, for the missing-key message. */
+function keyStatus(file: string, provider: KeyedProvider): string {
+  if (!existsSync(file)) return "not found";
+  let key: unknown;
+  try {
+    const tts = readRaw(file).tts;
+    const block = isPlainObject(tts) ? tts[provider] : undefined;
+    key = isPlainObject(block) ? block.key : undefined;
+  } catch {
+    return "unreadable";
+  }
+  if (key === undefined) return `no tts.${provider}.key`;
+  // Files are deep-merged, so a blank key in a later file hides an earlier one.
+  if (typeof key !== "string" || !key.trim()) return `tts.${provider}.key is empty`;
+  return `has tts.${provider}.key, but a later file overrides it`;
+}
+
+/**
+ * Every place the active provider's key was looked for, with what was found
+ * there, e.g. `$MY_KEY (not set)`. Empty for os/mock. `settingsFiles` defaults
+ * to the files a run from the current directory would read.
+ */
+export function keySources(config: Config, settingsFiles?: string[]): string[] {
+  if (!providerSettings(config)) return [];
+  const provider = config.tts.provider as KeyedProvider;
+  const places = (settingsFiles ?? settingsFilesChecked(process.cwd())).map(
+    (f) => `${f} (${keyStatus(f, provider)})`,
+  );
+  const envName = apiKeyEnvName(config);
+  if (envName) places.push(`$${envName} (${envName in process.env ? "empty" : "not set"})`);
+  return places;
+}
+
+function listPlaces(places: string[]): string {
+  return places.length > 1
+    ? `${places.slice(0, -1).join(", ")} and ${places.at(-1)}`
+    : places.join("");
+}
+
 /** Resolve the API key for the configured provider, with a clear error if missing.
- *  Precedence: the key in the settings (project over global), then the env fallback. */
-export function resolveApiKey(config: Config): string {
+ *  Precedence: the key in the settings (project over global), then the env fallback.
+ *  `settingsFiles` (see `settingsFilesChecked`) is named in the error so a caller
+ *  running with a filtered environment can tell exactly where the key was looked for. */
+export function resolveApiKey(config: Config, settingsFiles?: string[]): string {
   const s = providerSettings(config);
   if (!s) return ""; // os/mock
   const fromFile = s.key?.trim();
@@ -174,10 +237,10 @@ export function resolveApiKey(config: Config): string {
   const envName = apiKeyEnvName(config);
   const fromEnv = envName ? process.env[envName]?.trim() : undefined;
   if (fromEnv) return fromEnv;
-  const provider = config.tts.provider;
+  const provider = config.tts.provider as KeyedProvider;
   throw new Error(
-    `Missing API key for provider "${provider}". ` +
-      `Run \`narrate set-key ${provider} <key>\` to save it in your global settings ` +
-      `(~/.narrate/${GLOBAL_SETTINGS_FILE})${envName ? `, or set ${envName}` : ""}.`,
+    `No ${PROVIDER_LABEL[provider]} key: checked ${listPlaces(keySources(config, settingsFiles))}. ` +
+      `Run \`narrate set-key ${provider}\` to save one in your global settings` +
+      `${envName ? `, or pass ${envName} through to narrate's environment` : ""}.`,
   );
 }

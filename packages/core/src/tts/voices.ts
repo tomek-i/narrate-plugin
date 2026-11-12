@@ -19,11 +19,11 @@ export interface VoiceList {
  * this hits `GET /v1/voices`, which returns exactly the voices the account can
  * use — the reliable way to pick a voice that won't 402 on the free tier.
  */
-export async function listVoices(config: Config): Promise<VoiceList> {
+export async function listVoices(config: Config, settingsFiles?: string[]): Promise<VoiceList> {
   const provider = config.tts.provider;
   if (provider === "elevenlabs") {
     const res = await fetch("https://api.elevenlabs.io/v1/voices", {
-      headers: { "xi-api-key": resolveApiKey(config) },
+      headers: { "xi-api-key": resolveApiKey(config, settingsFiles) },
     });
     if (!res.ok) throw new Error(`ElevenLabs voices HTTP ${res.status}: ${await res.text()}`);
     const json = (await res.json()) as {

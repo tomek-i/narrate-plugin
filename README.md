@@ -43,6 +43,10 @@ Chromium are auto-provisioned on the first render. Narration works out of the bo
 with the **OS voice** (no key; Linux needs `espeak`). For studio-quality cloud
 narration, add a Gemini/ElevenLabs key via `/narrate-setup` (or `narrate set-key`).
 
+Running narrate with a filtered environment (CI, sandboxes)? See
+[Environment variables](./docs/configuration.md#environment-variables) for every
+variable it reads, including the TTS key variables.
+
 ## Documentation
 
 - [Usage](./docs/usage.md) — plugin + CLI, conventions, flags

@@ -1,6 +1,7 @@
 import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { settingsFilesChecked } from "./config.js";
 import {
   concatWavs,
   ensureFfmpeg,
@@ -21,6 +22,8 @@ export interface RenderOptions {
   onLog?: (msg: string) => void;
   /** Path the scene was loaded from — used by `output.keepScene` to retain a copy. */
   scenePath?: string;
+  /** Settings files consulted for this run; named in a missing-key error. */
+  settingsFiles?: string[];
 }
 
 /** A `site` that isn't a URL is treated as a local file path → `file://` URL. */
@@ -58,7 +61,7 @@ export async function render(scene: Scene, config: Config, opts: RenderOptions):
   mkdirSync(audioDir, { recursive: true });
 
   // 1. TTS — synth each beat and measure its real duration.
-  const provider = makeProvider(config);
+  const provider = makeProvider(config, opts.settingsFiles ?? settingsFilesChecked(opts.cwd));
   const activeVoice =
     config.tts.provider === "gemini"
       ? config.tts.gemini.voice

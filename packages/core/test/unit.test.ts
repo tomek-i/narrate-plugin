@@ -10,6 +10,7 @@ import {
   mergeSettings,
   resolveApiKey,
   settingOrigin,
+  settingsFilesChecked,
 } from "../src/config.js";
 import { interpolateEnv } from "../src/env.js";
 import { maskKey } from "../src/secret.js";
@@ -197,7 +198,60 @@ test("a missing key reports not-configured and resolveApiKey throws", () => {
     tts: { provider: "gemini", gemini: { apiKeyEnv: "NARRATE_UNSET_TEST_KEY" } },
   });
   assert.equal(hasApiKey(cfg), false);
-  assert.throws(() => resolveApiKey(cfg), /Missing API key/);
+  assert.throws(() => resolveApiKey(cfg), /No Gemini key/);
+});
+
+test("a missing key error names every place that was checked", () => {
+  const root = mkdtempSync(join(tmpdir(), "narrate-key-"));
+  try {
+    const globalPath = join(root, "home", "settings.json");
+    mkdirSync(dirname(globalPath), { recursive: true });
+    writeFileSync(globalPath, JSON.stringify({ tts: { provider: "elevenlabs" } }));
+    const cwd = join(root, "proj");
+    const files = settingsFilesChecked(cwd, undefined, globalPath);
+    assert.deepEqual(files, [globalPath, join(cwd, ".narrate", "settings.local.json")]);
+
+    const cfg = ConfigSchema.parse({
+      tts: { provider: "elevenlabs", elevenlabs: { apiKeyEnv: "NARRATE_UNSET_TEST_KEY" } },
+    });
+    assert.throws(
+      () => resolveApiKey(cfg, files),
+      (err: Error) => {
+        assert.match(err.message, /^No ElevenLabs key: checked /);
+        assert.ok(err.message.includes(`${globalPath} (no tts.elevenlabs.key)`), err.message);
+        assert.ok(err.message.includes(`${files[1]} (not found)`), err.message);
+        assert.ok(err.message.includes("$NARRATE_UNSET_TEST_KEY (not set)"), err.message);
+        return true;
+      },
+    );
+
+    // A blank key in a file is reported as such (it hides keys in earlier files),
+    // and a variable that is set but blank is "empty", not "not set".
+    mkdirSync(dirname(files[1]), { recursive: true });
+    writeFileSync(files[1], JSON.stringify({ tts: { elevenlabs: { key: " " } } }));
+    process.env.NARRATE_UNSET_TEST_KEY = "";
+    try {
+      assert.throws(
+        () => resolveApiKey(cfg, files),
+        (err: Error) =>
+          err.message.includes(`${files[1]} (tts.elevenlabs.key is empty)`) &&
+          err.message.includes("$NARRATE_UNSET_TEST_KEY (empty)"),
+      );
+    } finally {
+      Reflect.deleteProperty(process.env, "NARRATE_UNSET_TEST_KEY");
+    }
+
+    // --config pointing at the global file lists it once.
+    assert.deepEqual(settingsFilesChecked(cwd, globalPath, globalPath), [globalPath]);
+
+    // An explicit --config path is reported instead of the default project file.
+    assert.deepEqual(settingsFilesChecked(cwd, "custom.json", globalPath), [
+      globalPath,
+      join(cwd, "custom.json"),
+    ]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("maskKey shows only the prefix and last four characters", () => {

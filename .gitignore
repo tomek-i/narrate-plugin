@@ -27,3 +27,11 @@ _reference/
 Thumbs.db
 .idea/
 .vscode/
+
+# local review media (never committed)
+docs/*.mp4
+docs/*.vtt
+docs/*.scene.json
+docs/*.tasks.md
+docs/screenshots/
+docs/ux-review/
