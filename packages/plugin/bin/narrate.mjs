@@ -23092,14 +23092,18 @@ function settingOrigin(layers, keyPath) {
   }
   return "default";
 }
-function loadScene(cwd, scenePath) {
+function loadScene(cwd, scenePath, onWarning) {
   const p = resolve(cwd, scenePath);
   if (!existsSync(p)) throw new Error(`Scene file not found: ${p}`);
-  const parsed = SceneSchema.safeParse(JSON.parse(readFileSync(p, "utf8")));
+  const raw = JSON.parse(readFileSync(p, "utf8"));
+  const parsed = SceneSchema.safeParse(raw);
   if (!parsed.success) {
     const lines = parsed.error.issues.map((i) => `  ${formatPath(i.path)}: ${i.message}`);
     throw new Error(`Invalid scene ${p}:
 ${lines.join("\n")}`);
+  }
+  for (const { path } of unknownKeyProblems(raw, parsed.data)) {
+    onWarning?.(`\u26A0\uFE0F  Unknown scene key ${path} (ignored)`);
   }
   return resolveSceneSite(parsed.data, p);
 }
@@ -23108,6 +23112,21 @@ function resolveSceneSite(scene, sceneFile) {
     scene.site = pathToFileURL(resolve(dirname(sceneFile), scene.site)).href;
   }
   return scene;
+}
+function unknownKeyProblems(raw, parsed, path = "") {
+  if (Array.isArray(raw) && Array.isArray(parsed)) {
+    return raw.flatMap((item, i) => unknownKeyProblems(item, parsed[i], `${path}[${i}]`));
+  }
+  if (!isRecord(raw) || !isRecord(parsed)) return [];
+  return Object.keys(raw).flatMap((key) => {
+    const at = path ? `${path}.${key}` : key;
+    if (key in parsed) return unknownKeyProblems(raw[key], parsed[key], at);
+    if (!path && key === "$schema") return [];
+    return [{ path: at, message: `unknown key "${key}"` }];
+  });
+}
+function isRecord(v) {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 function formatPath(path) {
   return path.map(
@@ -24675,10 +24694,10 @@ var GeminiProvider = class {
   voiceTags = true;
   async synth(text, opts) {
     const voice = opts?.voice ?? this.voice;
-    const url2 = `https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent?key=${this.key}`;
+    const url2 = `https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent`;
     const res = await fetch(url2, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "x-goog-api-key": this.key },
       body: JSON.stringify({
         contents: [{ parts: [{ text }] }],
         generationConfig: {
@@ -24938,21 +24957,6 @@ function allowedOriginProblems(origins = []) {
     message: `expects a URL such as http://localhost:3000, got "${o}"`
   }));
 }
-function unknownKeyProblems(raw, parsed, path = "") {
-  if (Array.isArray(raw) && Array.isArray(parsed)) {
-    return raw.flatMap((item, i) => unknownKeyProblems(item, parsed[i], `${path}[${i}]`));
-  }
-  if (!isRecord(raw) || !isRecord(parsed)) return [];
-  return Object.keys(raw).flatMap((key) => {
-    const at = path ? `${path}.${key}` : key;
-    if (key in parsed) return unknownKeyProblems(raw[key], parsed[key], at);
-    if (!path && key === "$schema") return [];
-    return [{ path: at, message: `unknown key "${key}"` }];
-  });
-}
-function isRecord(v) {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
-}
 function schemaProblems(error62) {
   return error62.issues.map((issue2) => ({
     path: formatPath(issue2.path),
@@ -25112,6 +25116,7 @@ async function renderScene(scene, config2, opts) {
     log(
       `narrate render \u2014 scene "${scene.name}", provider "${config2.tts.provider}", platform ${process.platform}`
     );
+    for (const warning of opts.warnings ?? []) log(warning);
     const untrusted = Boolean(opts.untrusted || scene.untrusted);
     const problems = sceneProblems(
       { ...scene, site: resolveSite(scene.site, opts.cwd) },
@@ -25384,7 +25389,8 @@ async function renderCommand(o, say) {
     else if (config2.tts.provider === "elevenlabs") config2.tts.elevenlabs.voice = o.voice;
   }
   if (o.out) config2.output.dir = o.out;
-  const scene = loadScene(cwd, o.scene);
+  const warnings = [];
+  const scene = loadScene(cwd, o.scene, (w) => warnings.push(w));
   if (o.sameOrigin) scene.allowedOrigins = [];
   if (o.site) scene.site = o.site;
   const [badOrigin] = allowedOriginProblems(o.allowOrigin);
@@ -25400,6 +25406,7 @@ async function renderCommand(o, say) {
     logFile: o.log,
     // A caller parsing --json output must never get a silent "narrated" video.
     requireAudio: Boolean(o.json),
+    warnings,
     onLog: say
   });
 }

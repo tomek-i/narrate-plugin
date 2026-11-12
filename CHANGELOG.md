@@ -3,6 +3,10 @@
 ## [0.24.0](https://github.com/tomek-i/narrate-plugin/compare/v0.23.0...v0.24.0) (2026-11-12)
 
 
+### ⚠ Behaviour changes
+
+* **render:** a scene with two beats that share an `id` is now rejected before anything is recorded. Such scenes used to render with wrong timing and captions, because audio and timing are keyed by beat id. Run `narrate validate <scene.json>` to find duplicates (it also reports keys the scene schema doesn't know). ([#44](https://github.com/tomek-i/narrate-plugin/issues/44))
+
 ### Features
 
 * **cli:** narrate validate checks a scene without rendering ([#44](https://github.com/tomek-i/narrate-plugin/issues/44)) ([33b4216](https://github.com/tomek-i/narrate-plugin/commit/33b421696fa85558c9ebbda3304e16de02812f01))

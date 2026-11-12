@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
@@ -64,14 +64,12 @@ const unreachable = (name: string) => ({
   beats: [{ id: "intro", say: "Hello there." }],
 });
 
-const hasFfmpeg = spawnSync("ffmpeg", ["-version"]).status === 0;
-
 describe("render --json", () => {
   let site: TestServer;
   let browserSkip: string | false = "not probed";
   before(async () => {
     site = await serve((_req, res) => html(res, "<h1>Hello</h1>"));
-    browserSkip = hasFfmpeg ? await browserSkipReason() : "ffmpeg is not on PATH";
+    browserSkip = await browserSkipReason({ ffmpeg: true });
   });
   after(async () => {
     await site.close();
@@ -122,6 +120,27 @@ describe("render --json", () => {
     assert.equal(r.out.stage, "validate");
     assert.equal(r.out.log, join(tmp.dir, "logs", "dup.log"));
     assert.match(readFileSync(r.out.log, "utf8"), /duplicate beat id/);
+  });
+
+  test("unknown scene keys are warned about on stderr and in the log, $schema is not", async () => {
+    const scene = sceneFile("unknown-keys.json", {
+      $schema: "https://example.com/scene.schema.json",
+      site: "http://127.0.0.1:1",
+      untrused: true,
+      beats: [
+        { id: "a", say: "x", focusLable: "Name" },
+        // A duplicate id, so the render stops at validate without a browser.
+        { id: "a", say: "y" },
+      ],
+    });
+    const r = await runRender("--scene", scene, "--provider", "mock", "--log", "logs/unknown.log");
+    assert.equal(r.out.stage, "validate");
+    const log = readFileSync(r.out.log, "utf8");
+    for (const out of [r.stderr, log]) {
+      assert.match(out, /Unknown scene key untrused \(ignored\)/);
+      assert.match(out, /Unknown scene key beats\[0\]\.focusLable \(ignored\)/);
+      assert.doesNotMatch(out, /\$schema/);
+    }
   });
 
   test("without ffmpeg on PATH the failure is stage setup", async () => {

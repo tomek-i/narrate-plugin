@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { type Config, ConfigSchema, type Scene, SceneSchema } from "./types.js";
+import type { Problem } from "./validate.js";
 
 /** The project config file. Lives in `.narrate/` (gitignored); overrides global. */
 export const SETTINGS_FILE = "settings.local.json";
@@ -125,13 +126,24 @@ export function settingOrigin(
   return "default";
 }
 
-export function loadScene(cwd: string, scenePath: string): Scene {
+export function loadScene(
+  cwd: string,
+  scenePath: string,
+  onWarning?: (msg: string) => void,
+): Scene {
   const p = resolve(cwd, scenePath);
   if (!existsSync(p)) throw new Error(`Scene file not found: ${p}`);
-  const parsed = SceneSchema.safeParse(JSON.parse(readFileSync(p, "utf8")));
+  const raw: unknown = JSON.parse(readFileSync(p, "utf8"));
+  const parsed = SceneSchema.safeParse(raw);
   if (!parsed.success) {
     const lines = parsed.error.issues.map((i) => `  ${formatPath(i.path)}: ${i.message}`);
     throw new Error(`Invalid scene ${p}:\n${lines.join("\n")}`);
+  }
+  // The schema drops keys it doesn't know, so a typo such as `untrused` would
+  // otherwise do nothing without a word. Warn rather than fail, so scenes with
+  // extra keys of their own still render.
+  for (const { path } of unknownKeyProblems(raw, parsed.data)) {
+    onWarning?.(`⚠️  Unknown scene key ${path} (ignored)`);
   }
   return resolveSceneSite(parsed.data, p);
 }
@@ -145,6 +157,28 @@ export function resolveSceneSite(scene: Scene, sceneFile: string): Scene {
     scene.site = pathToFileURL(resolve(dirname(sceneFile), scene.site)).href;
   }
   return scene;
+}
+
+/**
+ * Keys in the raw scene that the schema doesn't know (the parsed scene dropped
+ * them): a typo like `untrused` would otherwise silently turn a setting off.
+ * `$schema` at the top level is allowed for editor support.
+ */
+export function unknownKeyProblems(raw: unknown, parsed: unknown, path = ""): Problem[] {
+  if (Array.isArray(raw) && Array.isArray(parsed)) {
+    return raw.flatMap((item, i) => unknownKeyProblems(item, parsed[i], `${path}[${i}]`));
+  }
+  if (!isRecord(raw) || !isRecord(parsed)) return [];
+  return Object.keys(raw).flatMap((key) => {
+    const at = path ? `${path}.${key}` : key;
+    if (key in parsed) return unknownKeyProblems(raw[key], parsed[key], at);
+    if (!path && key === "$schema") return [];
+    return [{ path: at, message: `unknown key "${key}"` }];
+  });
+}
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
 /** A zod issue path as a JSON path: `["beats", 2, "do", 0, "ms"]` → `beats[2].do[0].ms`. */

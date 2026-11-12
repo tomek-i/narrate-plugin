@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { type IncomingMessage, type ServerResponse, createServer } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -46,10 +47,25 @@ export function html(res: ServerResponse, body: string, status = 200): void {
 
 /**
  * Why browser tests can't run here, or false if they can. Recording needs a
- * Chromium plus Playwright's video encoder, which CI machines may lack; the
- * probe never downloads anything (unlike `launchBrowser`).
+ * Chromium plus Playwright's video encoder, which a machine may lack; the probe
+ * never downloads anything (unlike `launchBrowser`). With `ffmpeg`, a full
+ * render's ffmpeg on PATH is needed too.
+ *
+ * CI sets NARRATE_REQUIRE_BROWSER=1, so a broken browser setup there fails the
+ * run instead of quietly skipping every browser test.
  */
-export async function browserSkipReason(): Promise<string | false> {
+export async function browserSkipReason(opts: { ffmpeg?: boolean } = {}): Promise<string | false> {
+  const reason = await probeBrowser(opts);
+  if (reason && process.env.NARRATE_REQUIRE_BROWSER === "1") {
+    throw new Error(`NARRATE_REQUIRE_BROWSER=1, but browser tests can't run: ${reason}`);
+  }
+  return reason;
+}
+
+async function probeBrowser(opts: { ffmpeg?: boolean }): Promise<string | false> {
+  if (opts.ffmpeg && spawnSync("ffmpeg", ["-version"]).status !== 0) {
+    return "ffmpeg is not on PATH";
+  }
   let chromium: Awaited<ReturnType<typeof loadChromium>>;
   try {
     chromium = await loadChromium();

@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { z } from "zod";
-import { formatPath, resolveSceneSite } from "./config.js";
+import { formatPath, resolveSceneSite, unknownKeyProblems } from "./config.js";
 import { originOf } from "./record/origin-guard.js";
 import { hasVoiceTags, stripVoiceTags } from "./tts/tags.js";
 import { SCENE_SCHEMA_VERSION, type Scene, SceneSchema } from "./types.js";
@@ -112,28 +112,6 @@ export function allowedOriginProblems(origins: string[] = []): Problem[] {
       path: "--allow-origin",
       message: `expects a URL such as http://localhost:3000, got "${o}"`,
     }));
-}
-
-/**
- * Keys in the raw scene that the schema doesn't know (the parsed scene dropped
- * them): a typo like `untrused` would otherwise silently turn a setting off.
- * `$schema` at the top level is allowed for editor support.
- */
-export function unknownKeyProblems(raw: unknown, parsed: unknown, path = ""): Problem[] {
-  if (Array.isArray(raw) && Array.isArray(parsed)) {
-    return raw.flatMap((item, i) => unknownKeyProblems(item, parsed[i], `${path}[${i}]`));
-  }
-  if (!isRecord(raw) || !isRecord(parsed)) return [];
-  return Object.keys(raw).flatMap((key) => {
-    const at = path ? `${path}.${key}` : key;
-    if (key in parsed) return unknownKeyProblems(raw[key], parsed[key], at);
-    if (!path && key === "$schema") return [];
-    return [{ path: at, message: `unknown key "${key}"` }];
-  });
-}
-
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
 /** Schema errors as problems, one per zod issue. */

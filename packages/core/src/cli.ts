@@ -137,7 +137,8 @@ async function renderCommand(o: RenderFlags, say: (m: string) => void): Promise<
     else if (config.tts.provider === "elevenlabs") config.tts.elevenlabs.voice = o.voice;
   }
   if (o.out) config.output.dir = o.out;
-  const scene = loadScene(cwd, o.scene);
+  const warnings: string[] = [];
+  const scene = loadScene(cwd, o.scene, (w) => warnings.push(w));
   // Empty list = only the site's own origin (always allowed).
   if (o.sameOrigin) scene.allowedOrigins = [];
   if (o.site) scene.site = o.site;
@@ -154,6 +155,7 @@ async function renderCommand(o: RenderFlags, say: (m: string) => void): Promise<
     logFile: o.log,
     // A caller parsing --json output must never get a silent "narrated" video.
     requireAudio: Boolean(o.json),
+    warnings,
     onLog: say,
   });
 }

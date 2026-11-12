@@ -28,6 +28,22 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # The browser tests record for real: they need Playwright's Chromium (and
+      # its system libraries) plus ffmpeg on PATH for the full renders.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+      - name: Install Chromium and ffmpeg
+        run: |
+          pnpm --filter @narrate/core exec playwright install --with-deps chromium ffmpeg
+          if ! command -v ffmpeg >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends ffmpeg
+          fi
+
       - name: Typecheck
         run: pnpm typecheck
 
@@ -36,6 +52,9 @@ jobs:
 
       - name: Test
         run: pnpm test
+        env:
+          # Fail, rather than skip, if the browser tests can't run.
+          NARRATE_REQUIRE_BROWSER: "1"
 
       - name: Build
         run: pnpm --filter @narrate/core build

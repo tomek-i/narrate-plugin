@@ -167,9 +167,10 @@ or in a generator's tests to catch drift from narrate's schema.
 
 It is stricter than `render` in two ways, both to catch mistakes early:
 
-- Unknown keys are problems (`render` ignores them), so a typo such as
-  `untrused` or a renamed field is reported instead of silently doing nothing.
-  A top-level `$schema` is allowed.
+- Unknown keys are problems, so a typo such as `untrused` or a renamed field
+  is reported instead of silently doing nothing. `render` only warns about them
+  (`⚠️  Unknown scene key beats[2].focusLable (ignored)`, on stderr with
+  `--json` and in the log) and renders anyway. A top-level `$schema` is allowed.
 - The scene's `auth.storageState` file must exist (relative to the current
   directory, as for `render`). Not checked in untrusted mode, which ignores it.
 

@@ -433,6 +433,33 @@ test("render rejects duplicate beat ids before any TTS, in normal mode too", asy
   }
 });
 
+test("loadScene warns about each unknown key, except $schema", () => {
+  const root = mkdtempSync(join(tmpdir(), "narrate-scene-"));
+  try {
+    const file = join(root, "s.json");
+    writeFileSync(
+      file,
+      JSON.stringify({
+        $schema: "https://example.com/scene.schema.json",
+        site: "x",
+        untrused: true,
+        beats: [{ id: "a", say: "x", focusLable: "Name" }],
+      }),
+    );
+    const warnings: string[] = [];
+    const scene = loadScene(root, file, (w) => warnings.push(w));
+    assert.equal(scene.beats[0].id, "a");
+    assert.deepEqual(warnings, [
+      "⚠️  Unknown scene key untrused (ignored)",
+      "⚠️  Unknown scene key beats[0].focusLable (ignored)",
+    ]);
+    // Without a callback the keys are still ignored, not an error.
+    assert.doesNotThrow(() => loadScene(root, file));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("loadScene reports each schema problem with its path", () => {
   const root = mkdtempSync(join(tmpdir(), "narrate-scene-"));
   try {
