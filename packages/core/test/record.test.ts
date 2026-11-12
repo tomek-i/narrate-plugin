@@ -337,3 +337,45 @@ describe("same-origin guard", { skip }, () => {
     assert.deepEqual(other.hits, ["/"]);
   });
 });
+
+describe("env expansion in typed text", { skip }, () => {
+  let app: TestServer;
+  before(async () => {
+    // Reports every value the input takes back to the server.
+    app = await serve((req, res) => {
+      if (req.url?.startsWith("/value")) {
+        res.end();
+        return;
+      }
+      html(res, `<input id="t" oninput="fetch('/value?v=' + encodeURIComponent(this.value))">`);
+    });
+  });
+  after(() => app.close());
+
+  async function typed(expandEnv: boolean): Promise<string[]> {
+    app.hits.length = 0;
+    const out = tempDir("narrate-env-");
+    try {
+      const recorder = new PlaywrightRecorder(out.dir, ConfigSchema.parse({}), () => {});
+      const scene = SceneSchema.parse({
+        site: app.url,
+        beats: [{ id: "a", say: "x", do: [{ action: "fill", selector: "#t", text: "${HOME}" }] }],
+      });
+      await recorder.record(scene, { a: 1 }, { expandEnv });
+    } finally {
+      out.cleanup();
+    }
+    return app.hits
+      .filter((h) => h.startsWith("/value"))
+      .map((h) => new URLSearchParams(h.split("?")[1]).get("v") ?? "");
+  }
+
+  test("with expansion off, ${HOME} is typed literally", async () => {
+    assert.deepEqual(await typed(false), ["${HOME}"]);
+  });
+
+  test("by default, ${HOME} is expanded from the environment", async () => {
+    process.env.HOME ??= "/home/test";
+    assert.deepEqual(await typed(true), [process.env.HOME]);
+  });
+});

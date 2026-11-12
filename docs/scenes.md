@@ -100,10 +100,38 @@ DEMO_EMAIL=demo@acme.com DEMO_PASSWORD=… narrate render --scene …
 ```
 
 A referenced variable that isn't set is a hard error (it won't type a literal
-`${…}`). Use `$${…}` if you ever need a literal `${…}` in typed text. Interpolation
+`${…}`). Use `$${…}` in the scene file if you ever need a literal `${…}` in typed
+text, or render with `--no-env` to type all text exactly as written (when you
+build scenes in code, that's easier than escaping: in a JavaScript `replace`, the
+replacement `"$${"` means a single `$`, so the obvious escape silently does nothing). Interpolation
 applies to `fill` and `type` text only. Prefer a throwaway/test account here, and
 note the password field is masked in the recording but the value still passes
 through the page — `storageState` avoids that entirely.
+
+## Untrusted (generated) scenes
+
+When a scene is written by a tool or an agent, possibly from untrusted input such
+as issue text, render it with `--untrusted` (or set `"untrusted": true` in the
+scene; the flag turns it on either way). Before anything is synthesized or
+recorded, the scene is rejected if it contains:
+
+- an `eval` step (runs arbitrary JavaScript in the page);
+- an `uploadFile` step (reads local files into the page);
+- a `navigate` to an origin other than `site` (or `allowedOrigins`).
+
+The error lists each problem with its path and beat/step, e.g.
+`beats[1].do[0]: beat "login" step 1: eval runs arbitrary JavaScript; …`.
+
+Untrusted mode also:
+
+- types `${NAME}` in `fill`/`type` text **literally**, so a generated value like
+  `${USERPROFILE}` can't type the machine's environment into the video;
+- ignores the scene's `auth.storageState`, so a scene can't choose which saved
+  session to load. Pass `--storage-state <file>` to start signed in;
+- turns on the [same-origin guard](#same-origin-guard), so link clicks and
+  redirects can't take the recording to another site either.
+
+If you only need literal text (no other restrictions), use `--no-env`.
 
 ## Same-origin guard
 

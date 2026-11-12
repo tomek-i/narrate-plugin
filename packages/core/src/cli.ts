@@ -30,6 +30,15 @@ program
     "--same-origin",
     "keep the browser on the scene site's origin; fail without writing a video if it leaves",
   )
+  .option(
+    "--untrusted",
+    "safe mode for generated scenes: reject eval/uploadFile/off-site navigate, type ${NAME} literally, ignore the scene's auth, keep the browser on the site",
+  )
+  .option("--no-env", "type ${NAME} in fill/type text literally instead of expanding it")
+  .option(
+    "--storage-state <file>",
+    "load this saved session (overrides the scene's auth.storageState; the only way under --untrusted)",
+  )
   .action(async (o) => {
     const cwd = process.cwd();
     const config = loadConfig(cwd, o.config);
@@ -47,6 +56,9 @@ program
       cwd,
       scenePath: o.scene,
       settingsFiles: settingsFilesChecked(cwd, o.config),
+      untrusted: o.untrusted,
+      expandEnv: o.env,
+      storageState: o.storageState,
       onLog: (m) => console.log(m),
     });
     console.log(`\n✅ Done → ${out}`);

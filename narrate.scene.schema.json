@@ -53,6 +53,9 @@
         "type": "string"
       }
     },
+    "untrusted": {
+      "type": "boolean"
+    },
     "waitUntil": {
       "type": "string",
       "enum": [

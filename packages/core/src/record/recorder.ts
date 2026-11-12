@@ -7,10 +7,15 @@ export interface RecordResult {
   leadInMs: number;
 }
 
+export interface RecordOptions {
+  /** Expand `${NAME}` in `fill`/`type` text from the environment (default true). */
+  expandEnv?: boolean;
+}
+
 export interface Recorder {
   /**
    * Record the scene continuously, holding each beat on screen for exactly its
    * narration duration so the concatenated audio lines up with no syncing.
    */
-  record(scene: Scene, durations: Durations): Promise<RecordResult>;
+  record(scene: Scene, durations: Durations, opts?: RecordOptions): Promise<RecordResult>;
 }

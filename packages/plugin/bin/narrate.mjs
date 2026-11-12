@@ -22916,6 +22916,11 @@ var SceneSchema = external_exports.object({
       message: "must be an absolute URL, e.g. http://localhost:3000"
     })
   ).optional(),
+  /**
+   * Treat this scene as untrusted (generated): see `render --untrusted`. The
+   * flag turns it on even when the scene doesn't ask for it.
+   */
+  untrusted: external_exports.boolean().optional(),
   /** Override `record.waitUntil` from the config for this scene. */
   waitUntil: WaitUntilSchema.optional(),
   beats: external_exports.array(BeatSchema).min(1)
@@ -23895,7 +23900,8 @@ var PlaywrightRecorder = class {
   outDir;
   config;
   log;
-  async record(scene, durations) {
+  async record(scene, durations, opts = {}) {
+    const expandEnv = opts.expandEnv ?? true;
     const size = { width: scene.viewport.width, height: scene.viewport.height };
     const chromium = await loadChromium();
     const browser = await launchBrowser(chromium);
@@ -23965,7 +23971,7 @@ var PlaywrightRecorder = class {
         for (const [i, step] of beat.do.entries()) {
           await guarded(
             `beat "${beat.id}" step ${i + 1} (${step.action})`,
-            () => runStep(page, step, fx, pl)
+            () => runStep(page, step, fx, pl, expandEnv)
           );
         }
         const remaining = targetEnd - (Date.now() - t0);
@@ -24054,7 +24060,8 @@ async function clearHighlight(page, selector) {
   await page.evaluate((sel) => window.__narrate?.unhighlight(sel), selector ?? null).catch(() => {
   });
 }
-async function runStep(page, step, fx, pl) {
+async function runStep(page, step, fx, pl, expandEnv) {
+  const text = (t) => expandEnv ? interpolateEnv(t) : t;
   switch (step.action) {
     // --- timing ---
     case "wait":
@@ -24112,11 +24119,11 @@ async function runStep(page, step, fx, pl) {
     // --- keyboard / forms ---
     case "fill":
       if (fx.cursor) await pointTo(page, step.selector);
-      await page.fill(step.selector, interpolateEnv(step.text));
+      await page.fill(step.selector, text(step.text));
       return;
     case "type":
       if (fx.cursor) await pointTo(page, step.selector);
-      await page.locator(step.selector).pressSequentially(interpolateEnv(step.text), { delay: step.delay });
+      await page.locator(step.selector).pressSequentially(text(step.text), { delay: step.delay });
       return;
     case "clear":
       await page.fill(step.selector, "");
@@ -24532,6 +24539,55 @@ function makeProvider(config2, settingsFiles) {
   }
 }
 
+// src/validate.ts
+function safeOrigin(url2) {
+  try {
+    return originOf(url2);
+  } catch {
+    return null;
+  }
+}
+function untrustedProblems(scene) {
+  const problems = [];
+  const allowed = new Set(
+    [scene.site, ...scene.allowedOrigins ?? []].map(safeOrigin).filter((o) => o !== null)
+  );
+  scene.beats.forEach((beat, b) => {
+    beat.do.forEach((step, s) => {
+      const path = `beats[${b}].do[${s}]`;
+      const where = `beat "${beat.id}" step ${s + 1}`;
+      if (step.action === "eval") {
+        problems.push({
+          path,
+          message: `${where}: eval runs arbitrary JavaScript; not allowed in an untrusted scene`
+        });
+      } else if (step.action === "uploadFile") {
+        problems.push({
+          path,
+          message: `${where}: uploadFile reads local files; not allowed in an untrusted scene`
+        });
+      } else if (step.action === "navigate") {
+        let target = null;
+        try {
+          target = new URL(step.url, scene.site).href;
+        } catch {
+        }
+        const origin = target && safeOrigin(target);
+        if (!origin || !allowed.has(origin)) {
+          problems.push({
+            path: `${path}.url`,
+            message: `${where}: navigate to ${step.url} leaves the site's origin (${[...allowed].join(", ") || "none"}); not allowed in an untrusted scene`
+          });
+        }
+      }
+    });
+  });
+  return problems;
+}
+function formatProblems(problems) {
+  return problems.map((p) => `  ${p.path}: ${p.message}`).join("\n");
+}
+
 // src/vtt.ts
 function timestamp(seconds) {
   const ms = Math.max(0, Math.round(seconds * 1e3));
@@ -24568,6 +24624,16 @@ async function render(scene, config2, opts) {
   log(
     `narrate render \u2014 scene "${scene.name}", provider "${config2.tts.provider}", platform ${process.platform}`
   );
+  const untrusted = Boolean(opts.untrusted || scene.untrusted);
+  if (untrusted) {
+    const problems = untrustedProblems({ ...scene, site: resolveSite(scene.site, opts.cwd) });
+    if (problems.length) {
+      throw new Error(`Scene rejected (untrusted mode):
+${formatProblems(problems)}`);
+    }
+    log("Untrusted mode: on (no eval/uploadFile/off-site navigate, ${NAME} typed literally)");
+  }
+  const expandEnv = !untrusted && opts.expandEnv !== false;
   ensureFfmpeg();
   if (!await hasPlaywright()) {
     log("First run: provisioning the headless browser (one-time)\u2026");
@@ -24592,7 +24658,13 @@ async function render(scene, config2, opts) {
   }
   log("Recording walkthrough (headless)\u2026");
   const recorder = new PlaywrightRecorder(outDir, config2, log);
-  let auth = scene.auth;
+  if (untrusted && scene.auth?.storageState && !opts.storageState) {
+    log(
+      `\u26A0\uFE0F  Untrusted mode: ignoring the scene's auth.storageState (${scene.auth.storageState}); pass --storage-state to start signed in.`
+    );
+  }
+  const statePathIn = opts.storageState ?? (untrusted ? void 0 : scene.auth?.storageState);
+  let auth = statePathIn ? { storageState: statePathIn } : void 0;
   if (auth?.storageState) {
     const statePath = resolve3(opts.cwd, auth.storageState);
     if (!existsSync4(statePath)) {
@@ -24603,14 +24675,20 @@ async function render(scene, config2, opts) {
     auth = { storageState: statePath };
     log(`Auth: loading storage state from ${statePath} (starting signed in)`);
   }
-  const sceneToRecord = { ...scene, site: resolveSite(scene.site, opts.cwd), auth };
+  const sceneToRecord = {
+    ...scene,
+    site: resolveSite(scene.site, opts.cwd),
+    auth,
+    // Untrusted scenes always record with the same-origin guard on.
+    allowedOrigins: scene.allowedOrigins ?? (untrusted ? [] : void 0)
+  };
   if (sceneToRecord.allowedOrigins) {
     rmSync3(join5(outDir, `${scene.name}.${config2.output.format}`), { force: true });
     log(
       `Same-origin guard: on (allowed: ${[sceneToRecord.site, ...sceneToRecord.allowedOrigins].map(originOf).join(", ")})`
     );
   }
-  const { videoPath, leadInMs } = await recorder.record(sceneToRecord, durations);
+  const { videoPath, leadInMs } = await recorder.record(sceneToRecord, durations, { expandEnv });
   if (!videoPath) throw new Error("Recording produced no video file.");
   log(`Recorded video: ${videoPath} (lead-in ${(leadInMs / 1e3).toFixed(3)}s)`);
   log("Muxing narration onto video\u2026");
@@ -24710,6 +24788,12 @@ program2.name("narrate").description("Generate a narrated walkthrough video of a
 program2.command("render").description("TTS \u2192 record \u2192 mux into one narrated video.").requiredOption("-s, --scene <file>", "scene JSON file").option("-c, --config <file>", CONFIG_HELP).option("-o, --out <dir>", "output directory (overrides config output.dir)").option("--provider <name>", "override TTS provider (gemini|elevenlabs|os|mock)").option("--voice <name>", "override voice").option(
   "--same-origin",
   "keep the browser on the scene site's origin; fail without writing a video if it leaves"
+).option(
+  "--untrusted",
+  "safe mode for generated scenes: reject eval/uploadFile/off-site navigate, type ${NAME} literally, ignore the scene's auth, keep the browser on the site"
+).option("--no-env", "type ${NAME} in fill/type text literally instead of expanding it").option(
+  "--storage-state <file>",
+  "load this saved session (overrides the scene's auth.storageState; the only way under --untrusted)"
 ).action(async (o) => {
   const cwd = process.cwd();
   const config2 = loadConfig(cwd, o.config);
@@ -24725,6 +24809,9 @@ program2.command("render").description("TTS \u2192 record \u2192 mux into one na
     cwd,
     scenePath: o.scene,
     settingsFiles: settingsFilesChecked(cwd, o.config),
+    untrusted: o.untrusted,
+    expandEnv: o.env,
+    storageState: o.storageState,
     onLog: (m) => console.log(m)
   });
   console.log(`
