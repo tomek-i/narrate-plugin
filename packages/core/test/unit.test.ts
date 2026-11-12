@@ -356,18 +356,23 @@ test(
 );
 
 test("the OS voice removes its scratch folder even when the voice fails", async () => {
-  const scratchDirs = () =>
-    new Set(readdirSync(tmpdir()).filter((n) => n.startsWith("narrate-os-")));
-  const before = scratchDirs();
+  // A private temp folder, so nothing else on the machine can add to what we check.
+  const temp = mkdtempSync(join(tmpdir(), "narrate-scratch-test-"));
   // No PowerShell, `say` or espeak can be found, so synthesis fails (and falls back to silence).
   const saved = {
     PATH: process.env.PATH,
     Path: process.env.Path,
     SystemRoot: process.env.SystemRoot,
+    TMPDIR: process.env.TMPDIR,
+    TEMP: process.env.TEMP,
+    TMP: process.env.TMP,
   };
   process.env.PATH = "";
   process.env.Path = "";
-  process.env.SystemRoot = join(tmpdir(), "no-windows-here");
+  process.env.SystemRoot = join(temp, "no-windows-here");
+  process.env.TMPDIR = temp;
+  process.env.TEMP = temp;
+  process.env.TMP = temp;
   const warn = console.warn;
   console.warn = () => {};
   try {
@@ -380,8 +385,11 @@ test("the OS voice removes its scratch folder even when the voice fails", async 
       else process.env[k] = v;
     }
   }
-  const leaked = [...scratchDirs()].filter((n) => !before.has(n));
-  assert.deepEqual(leaked, [], "scratch folders left in the temp dir");
+  try {
+    assert.deepEqual(readdirSync(temp), [], "scratch folders left in the temp dir");
+  } finally {
+    rmSync(temp, { recursive: true, force: true });
+  }
 });
 
 test("render in untrusted mode rejects a scene before any work, from the flag or the scene", async () => {
