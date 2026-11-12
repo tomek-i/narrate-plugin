@@ -24724,11 +24724,11 @@ var OsTtsProvider = class {
     try {
       switch (process.platform) {
         case "win32":
-          return windows(text, opts?.voice);
+          return withScratch((s) => windows(s, text, opts?.voice));
         case "darwin":
-          return macos(text, opts?.voice);
+          return withScratch((s) => macos(s, text, opts?.voice));
         default:
-          return linux(text, opts?.voice);
+          return withScratch((s) => linux(s, text, opts?.voice));
       }
     } catch (err) {
       if (!this.warned) {
@@ -24745,6 +24745,14 @@ var OsTtsProvider = class {
 function run(cmd, args, env) {
   execFileSync4(cmd, args, { stdio: "ignore", ...env ? { env: { ...process.env, ...env } } : {} });
 }
+function withScratch(fn) {
+  const s = scratch();
+  try {
+    return fn(s);
+  } finally {
+    s.clean();
+  }
+}
 function scratch() {
   const dir = mkdtempSync(join5(tmpdir(), "narrate-os-"));
   return {
@@ -24754,8 +24762,7 @@ function scratch() {
     clean: () => rmSync3(dir, { recursive: true, force: true })
   };
 }
-function windows(text, voice) {
-  const s = scratch();
+function windows(s, text, voice) {
   const wav = s.out("wav");
   writeFileSync4(s.txt, text, "utf8");
   const ps = [
@@ -24786,23 +24793,18 @@ function windows(text, voice) {
   }
   if (!ran) throw lastErr ?? new Error("no PowerShell found");
   const audio = readFileSync6(wav);
-  s.clean();
   if (audio.length <= 44) throw new Error("PowerShell TTS produced an empty WAV");
   return { audio, ext: "wav" };
 }
-function macos(text, voice) {
-  const s = scratch();
+function macos(s, text, voice) {
   const aiff = s.out("aiff");
   writeFileSync4(s.txt, text, "utf8");
   const args = ["-f", s.txt, "-o", aiff];
   if (voice) args.unshift("-v", voice);
   run("say", args);
-  const audio = readFileSync6(aiff);
-  s.clean();
-  return { audio, ext: "aiff" };
+  return { audio: readFileSync6(aiff), ext: "aiff" };
 }
-function linux(text, voice) {
-  const s = scratch();
+function linux(s, text, voice) {
   const wav = s.out("wav");
   writeFileSync4(s.txt, text, "utf8");
   const bin = ["espeak-ng", "espeak"].find((b) => {
@@ -24817,9 +24819,7 @@ function linux(text, voice) {
   const args = ["-w", wav, "-f", s.txt];
   if (voice) args.push("-v", voice);
   run(bin, args);
-  const audio = readFileSync6(wav);
-  s.clean();
-  return { audio, ext: "wav" };
+  return { audio: readFileSync6(wav), ext: "wav" };
 }
 function silent(text) {
   const rate = 24e3;

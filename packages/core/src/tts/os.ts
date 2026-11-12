@@ -19,11 +19,11 @@ export class OsTtsProvider implements TTSProvider {
     try {
       switch (process.platform) {
         case "win32":
-          return windows(text, opts?.voice);
+          return withScratch((s) => windows(s, text, opts?.voice));
         case "darwin":
-          return macos(text, opts?.voice);
+          return withScratch((s) => macos(s, text, opts?.voice));
         default:
-          return linux(text, opts?.voice);
+          return withScratch((s) => linux(s, text, opts?.voice));
       }
     } catch (err) {
       if (!this.warned) {
@@ -43,7 +43,19 @@ function run(cmd: string, args: string[], env?: NodeJS.ProcessEnv): void {
   execFileSync(cmd, args, { stdio: "ignore", ...(env ? { env: { ...process.env, ...env } } : {}) });
 }
 
-function scratch(): { dir: string; txt: string; out: (ext: string) => string; clean: () => void } {
+type Scratch = { dir: string; txt: string; out: (ext: string) => string; clean: () => void };
+
+/** Run `fn` with a scratch folder that's removed afterwards, also when `fn` fails. */
+function withScratch<T>(fn: (s: Scratch) => T): T {
+  const s = scratch();
+  try {
+    return fn(s);
+  } finally {
+    s.clean();
+  }
+}
+
+function scratch(): Scratch {
   const dir = mkdtempSync(join(tmpdir(), "narrate-os-"));
   return {
     dir,
@@ -53,8 +65,7 @@ function scratch(): { dir: string; txt: string; out: (ext: string) => string; cl
   };
 }
 
-function windows(text: string, voice?: string): SynthResult {
-  const s = scratch();
+function windows(s: Scratch, text: string, voice?: string): SynthResult {
   const wav = s.out("wav");
   writeFileSync(s.txt, text, "utf8");
   // The voice (scene input) and the paths (which can contain quotes, e.g. a user
@@ -91,25 +102,20 @@ function windows(text: string, voice?: string): SynthResult {
   }
   if (!ran) throw lastErr ?? new Error("no PowerShell found");
   const audio = readFileSync(wav);
-  s.clean();
   if (audio.length <= 44) throw new Error("PowerShell TTS produced an empty WAV");
   return { audio, ext: "wav" };
 }
 
-function macos(text: string, voice?: string): SynthResult {
-  const s = scratch();
+function macos(s: Scratch, text: string, voice?: string): SynthResult {
   const aiff = s.out("aiff");
   writeFileSync(s.txt, text, "utf8");
   const args = ["-f", s.txt, "-o", aiff];
   if (voice) args.unshift("-v", voice);
   run("say", args);
-  const audio = readFileSync(aiff);
-  s.clean();
-  return { audio, ext: "aiff" };
+  return { audio: readFileSync(aiff), ext: "aiff" };
 }
 
-function linux(text: string, voice?: string): SynthResult {
-  const s = scratch();
+function linux(s: Scratch, text: string, voice?: string): SynthResult {
   const wav = s.out("wav");
   writeFileSync(s.txt, text, "utf8");
   const bin = ["espeak-ng", "espeak"].find((b) => {
@@ -124,9 +130,7 @@ function linux(text: string, voice?: string): SynthResult {
   const args = ["-w", wav, "-f", s.txt];
   if (voice) args.push("-v", voice);
   run(bin, args);
-  const audio = readFileSync(wav);
-  s.clean();
-  return { audio, ext: "wav" };
+  return { audio: readFileSync(wav), ext: "wav" };
 }
 
 /** Silent WAV sized to the text — same shaping as the mock provider. */
