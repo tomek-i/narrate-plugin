@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
@@ -64,14 +64,12 @@ const unreachable = (name: string) => ({
   beats: [{ id: "intro", say: "Hello there." }],
 });
 
-const hasFfmpeg = spawnSync("ffmpeg", ["-version"]).status === 0;
-
 describe("render --json", () => {
   let site: TestServer;
   let browserSkip: string | false = "not probed";
   before(async () => {
     site = await serve((_req, res) => html(res, "<h1>Hello</h1>"));
-    browserSkip = hasFfmpeg ? await browserSkipReason() : "ffmpeg is not on PATH";
+    browserSkip = await browserSkipReason({ ffmpeg: true });
   });
   after(async () => {
     await site.close();
