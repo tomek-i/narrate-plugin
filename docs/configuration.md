@@ -142,9 +142,10 @@ The default (`bIHbv24MWmeRgasZH58o`, "Will") is a premade voice that's free-tier
 For CI, a key can instead come from an env var: `NARRATE_GEMINI_API_KEY` /
 `NARRATE_ELEVENLABS_API_KEY` (or a custom name set via `tts.<provider>.apiKeyEnv`).
 A `key` in either settings file takes precedence; the env var is the fallback.
-If no key is found, the error names every place narrate looked, e.g.
-`No ElevenLabs key: checked ~/.narrate/settings.json (no tts.elevenlabs.key),
-./.narrate/settings.local.json (not found) and $MY_KEY (not set)`.
+If no key is found, the error (and `narrate check`) names every place narrate
+looked and what it found there, with full paths, e.g.
+`No ElevenLabs key: checked /home/me/.narrate/settings.json (no tts.elevenlabs.key),
+/work/app/.narrate/settings.local.json (not found) and $MY_KEY (not set)`.
 
 ## Environment variables
 
@@ -162,6 +163,8 @@ the ones you need:
 | *any `${NAME}` in a scene* | `fill`/`type` text expands `${NAME}` from the environment at render time; an unset variable fails the render. |
 | `PATH` | Finds `ffmpeg`/`ffprobe`, `npm` (first-run Playwright install), the OS voice (`say`, `espeak`) and the clipboard tools used by `set-key --clipboard`. |
 | `SystemRoot` / `windir` | Windows only: locate PowerShell for the OS voice. |
+| `TMPDIR` / `TEMP` / `TMP` | Temp dir for the OS voice's intermediate audio file. On Windows, without them it falls back to `C:\Windows\Temp`, which usually isn't writable. |
+| `DISPLAY` / `WAYLAND_DISPLAY` | Linux only: the headed browser opened by `narrate auth`, and the clipboard tools for `set-key --clipboard`. |
 | `PLAYWRIGHT_BROWSERS_PATH` | Read by Playwright: where its downloaded Chromium lives (default: the OS cache dir, e.g. `%LOCALAPPDATA%\ms-playwright` or `~/.cache/ms-playwright`). Pass it if you moved the browser cache. |
 | `LOCALAPPDATA` / `XDG_CACHE_HOME` | Read by Playwright to find its default browser cache when `PLAYWRIGHT_BROWSERS_PATH` is not set. |
 

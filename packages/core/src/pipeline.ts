@@ -1,6 +1,7 @@
 import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { settingsFilesChecked } from "./config.js";
 import {
   concatWavs,
   ensureFfmpeg,
@@ -60,7 +61,7 @@ export async function render(scene: Scene, config: Config, opts: RenderOptions):
   mkdirSync(audioDir, { recursive: true });
 
   // 1. TTS — synth each beat and measure its real duration.
-  const provider = makeProvider(config, opts.settingsFiles);
+  const provider = makeProvider(config, opts.settingsFiles ?? settingsFilesChecked(opts.cwd));
   const activeVoice =
     config.tts.provider === "gemini"
       ? config.tts.gemini.voice

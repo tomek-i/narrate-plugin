@@ -186,6 +186,45 @@ const PROVIDER_LABEL: Record<KeyedProvider, string> = {
   elevenlabs: "ElevenLabs",
 };
 
+/** What one settings file holds for `tts.<provider>.key`, for the missing-key message. */
+function keyStatus(file: string, provider: KeyedProvider): string {
+  if (!existsSync(file)) return "not found";
+  let key: unknown;
+  try {
+    const tts = readRaw(file).tts;
+    const block = isPlainObject(tts) ? tts[provider] : undefined;
+    key = isPlainObject(block) ? block.key : undefined;
+  } catch {
+    return "unreadable";
+  }
+  if (key === undefined) return `no tts.${provider}.key`;
+  // Files are deep-merged, so a blank key in a later file hides an earlier one.
+  if (typeof key !== "string" || !key.trim()) return `tts.${provider}.key is empty`;
+  return `has tts.${provider}.key, but a later file overrides it`;
+}
+
+/**
+ * Every place the active provider's key was looked for, with what was found
+ * there, e.g. `$MY_KEY (not set)`. Empty for os/mock. `settingsFiles` defaults
+ * to the files a run from the current directory would read.
+ */
+export function keySources(config: Config, settingsFiles?: string[]): string[] {
+  if (!providerSettings(config)) return [];
+  const provider = config.tts.provider as KeyedProvider;
+  const places = (settingsFiles ?? settingsFilesChecked(process.cwd())).map(
+    (f) => `${f} (${keyStatus(f, provider)})`,
+  );
+  const envName = apiKeyEnvName(config);
+  if (envName) places.push(`$${envName} (${envName in process.env ? "empty" : "not set"})`);
+  return places;
+}
+
+function listPlaces(places: string[]): string {
+  return places.length > 1
+    ? `${places.slice(0, -1).join(", ")} and ${places.at(-1)}`
+    : places.join("");
+}
+
 /** Resolve the API key for the configured provider, with a clear error if missing.
  *  Precedence: the key in the settings (project over global), then the env fallback.
  *  `settingsFiles` (see `settingsFilesChecked`) is named in the error so a caller
@@ -199,14 +238,8 @@ export function resolveApiKey(config: Config, settingsFiles?: string[]): string 
   const fromEnv = envName ? process.env[envName]?.trim() : undefined;
   if (fromEnv) return fromEnv;
   const provider = config.tts.provider as KeyedProvider;
-  const places = (settingsFiles ?? settingsFilesChecked(process.cwd())).map(
-    (f) => `${f} (${existsSync(f) ? `no tts.${provider}.key` : "not found"})`,
-  );
-  if (envName) places.push(`$${envName} (${envName in process.env ? "empty" : "not set"})`);
-  const listed =
-    places.length > 1 ? `${places.slice(0, -1).join(", ")} and ${places.at(-1)}` : places.join("");
   throw new Error(
-    `No ${PROVIDER_LABEL[provider]} key: checked ${listed}. ` +
+    `No ${PROVIDER_LABEL[provider]} key: checked ${listPlaces(keySources(config, settingsFiles))}. ` +
       `Run \`narrate set-key ${provider}\` to save one in your global settings` +
       `${envName ? `, or pass ${envName} through to narrate's environment` : ""}.`,
   );

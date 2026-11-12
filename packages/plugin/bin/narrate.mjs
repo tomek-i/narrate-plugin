@@ -23082,6 +23082,33 @@ var PROVIDER_LABEL = {
   gemini: "Gemini",
   elevenlabs: "ElevenLabs"
 };
+function keyStatus(file2, provider) {
+  if (!existsSync(file2)) return "not found";
+  let key;
+  try {
+    const tts = readRaw(file2).tts;
+    const block = isPlainObject2(tts) ? tts[provider] : void 0;
+    key = isPlainObject2(block) ? block.key : void 0;
+  } catch {
+    return "unreadable";
+  }
+  if (key === void 0) return `no tts.${provider}.key`;
+  if (typeof key !== "string" || !key.trim()) return `tts.${provider}.key is empty`;
+  return `has tts.${provider}.key, but a later file overrides it`;
+}
+function keySources(config2, settingsFiles) {
+  if (!providerSettings(config2)) return [];
+  const provider = config2.tts.provider;
+  const places = (settingsFiles ?? settingsFilesChecked(process.cwd())).map(
+    (f) => `${f} (${keyStatus(f, provider)})`
+  );
+  const envName = apiKeyEnvName(config2);
+  if (envName) places.push(`$${envName} (${envName in process.env ? "empty" : "not set"})`);
+  return places;
+}
+function listPlaces(places) {
+  return places.length > 1 ? `${places.slice(0, -1).join(", ")} and ${places.at(-1)}` : places.join("");
+}
 function resolveApiKey(config2, settingsFiles) {
   const s = providerSettings(config2);
   if (!s) return "";
@@ -23091,13 +23118,8 @@ function resolveApiKey(config2, settingsFiles) {
   const fromEnv = envName ? process.env[envName]?.trim() : void 0;
   if (fromEnv) return fromEnv;
   const provider = config2.tts.provider;
-  const places = (settingsFiles ?? settingsFilesChecked(process.cwd())).map(
-    (f) => `${f} (${existsSync(f) ? `no tts.${provider}.key` : "not found"})`
-  );
-  if (envName) places.push(`$${envName} (${envName in process.env ? "empty" : "not set"})`);
-  const listed = places.length > 1 ? `${places.slice(0, -1).join(", ")} and ${places.at(-1)}` : places.join("");
   throw new Error(
-    `No ${PROVIDER_LABEL[provider]} key: checked ${listed}. Run \`narrate set-key ${provider}\` to save one in your global settings${envName ? `, or pass ${envName} through to narrate's environment` : ""}.`
+    `No ${PROVIDER_LABEL[provider]} key: checked ${listPlaces(keySources(config2, settingsFiles))}. Run \`narrate set-key ${provider}\` to save one in your global settings${envName ? `, or pass ${envName} through to narrate's environment` : ""}.`
   );
 }
 
@@ -23372,7 +23394,7 @@ function setVoice(cwd, voice, log = console.log, scope = "global") {
   log(`set tts.${provider}.voice="${voice.trim()}" in ${path}`);
   return path;
 }
-function checkEnv(config2, layers = []) {
+function checkEnv(config2, layers = [], settingsFiles) {
   const lines = [];
   let ok = true;
   try {
@@ -23402,7 +23424,7 @@ function checkEnv(config2, layers = []) {
   } else {
     ok = false;
     lines.push(
-      `TTS key: MISSING \u2014 run \`narrate set-key ${provider} <key>\` (saves to ${globalSettingsPath()}; add --project for a project-only key in .narrate/${SETTINGS_FILE}), or use --provider os for the OS voice / mock for silent`
+      `TTS key: MISSING \u2014 checked ${keySources(config2, settingsFiles).join(", ")}. Run \`narrate set-key ${provider}\` (saves to ${globalSettingsPath()}; add --project for a project-only key in .narrate/${SETTINGS_FILE}), or use --provider os for the OS voice / mock for silent`
     );
   }
   lines.push(`RESULT:  ${ok ? "PASS" : "FAIL"}`);
@@ -24299,7 +24321,7 @@ async function render(scene, config2, opts) {
   const outDir = resolve3(opts.cwd, config2.output.dir);
   const audioDir = join5(outDir, "audio");
   mkdirSync3(audioDir, { recursive: true });
-  const provider = makeProvider(config2, opts.settingsFiles);
+  const provider = makeProvider(config2, opts.settingsFiles ?? settingsFilesChecked(opts.cwd));
   const activeVoice = config2.tts.provider === "gemini" ? config2.tts.gemini.voice : config2.tts.provider === "elevenlabs" ? config2.tts.elevenlabs.voice : provider.name;
   log(`Generating narration with "${provider.name}" (voice: ${activeVoice})\u2026`);
   const durations = {};
@@ -24493,7 +24515,7 @@ program2.command("set-voice").description(
 program2.command("check").description("Validate the environment (ffmpeg, config, TTS key). Exits non-zero if not ready.").option("-c, --config <file>", CONFIG_HELP).action((o) => {
   const cwd = process.cwd();
   const { config: config2, layers } = loadConfigLayers(cwd, o.config);
-  const result = checkEnv(config2, layers);
+  const result = checkEnv(config2, layers, settingsFilesChecked(cwd, o.config));
   for (const line of result.lines) console.log(line);
   if (!result.ok) process.exit(1);
 });

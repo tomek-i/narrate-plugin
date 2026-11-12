@@ -225,6 +225,25 @@ test("a missing key error names every place that was checked", () => {
       },
     );
 
+    // A blank key in a file is reported as such (it hides keys in earlier files),
+    // and a variable that is set but blank is "empty", not "not set".
+    mkdirSync(dirname(files[1]), { recursive: true });
+    writeFileSync(files[1], JSON.stringify({ tts: { elevenlabs: { key: " " } } }));
+    process.env.NARRATE_UNSET_TEST_KEY = "";
+    try {
+      assert.throws(
+        () => resolveApiKey(cfg, files),
+        (err: Error) =>
+          err.message.includes(`${files[1]} (tts.elevenlabs.key is empty)`) &&
+          err.message.includes("$NARRATE_UNSET_TEST_KEY (empty)"),
+      );
+    } finally {
+      Reflect.deleteProperty(process.env, "NARRATE_UNSET_TEST_KEY");
+    }
+
+    // --config pointing at the global file lists it once.
+    assert.deepEqual(settingsFilesChecked(cwd, globalPath, globalPath), [globalPath]);
+
     // An explicit --config path is reported instead of the default project file.
     assert.deepEqual(settingsFilesChecked(cwd, "custom.json", globalPath), [
       globalPath,

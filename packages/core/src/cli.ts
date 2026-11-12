@@ -134,7 +134,7 @@ program
   .action((o) => {
     const cwd = process.cwd();
     const { config, layers } = loadConfigLayers(cwd, o.config);
-    const result = checkEnv(config, layers);
+    const result = checkEnv(config, layers, settingsFilesChecked(cwd, o.config));
     for (const line of result.lines) console.log(line);
     if (!result.ok) process.exit(1);
   });

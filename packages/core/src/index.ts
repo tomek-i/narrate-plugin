@@ -9,6 +9,7 @@ export {
   apiKeyEnvName,
   hasApiKey,
   settingsFilesChecked,
+  keySources,
   settingsPath,
   globalSettingsPath,
   SETTINGS_FILE,
