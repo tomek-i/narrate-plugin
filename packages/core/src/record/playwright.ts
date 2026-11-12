@@ -2,6 +2,7 @@ import { rmSync } from "node:fs";
 import { join } from "node:path";
 import type { Browser, BrowserType, Page } from "playwright";
 import { interpolateEnv } from "../env.js";
+import { onInterrupt } from "../interrupt.js";
 import { installChromium } from "../setup.js";
 import type { Config, Durations, OverlayConfig, Scene, Step, WaitUntil } from "../types.js";
 import { OriginGuard, OriginGuardError } from "./origin-guard.js";
@@ -42,9 +43,17 @@ interface PageLoad {
  */
 export async function launchBrowser(
   chromium: BrowserType,
-  opts: { headed?: boolean } = {},
+  opts: { headed?: boolean; handleSignals?: boolean } = {},
 ): Promise<Browser> {
-  const headless = !opts.headed;
+  // With handleSignals false, the caller closes the browser on a signal itself
+  // (see interrupt.ts) instead of Playwright doing it behind its back.
+  const signals = opts.handleSignals ?? true;
+  const base = {
+    headless: !opts.headed,
+    handleSIGINT: signals,
+    handleSIGTERM: signals,
+    handleSIGHUP: signals,
+  };
   const attempts: Array<{ channel?: "msedge" | "chrome" }> = [
     {}, // Playwright's Chromium, if already downloaded
     { channel: "msedge" }, // preinstalled on Windows
@@ -53,14 +62,14 @@ export async function launchBrowser(
   let lastErr: unknown;
   for (const a of attempts) {
     try {
-      return await chromium.launch({ ...a, headless });
+      return await chromium.launch({ ...a, ...base });
     } catch (err) {
       lastErr = err;
     }
   }
   try {
     installChromium();
-    return await chromium.launch({ headless });
+    return await chromium.launch(base);
   } catch {
     throw lastErr;
   }
@@ -99,7 +108,9 @@ export class PlaywrightRecorder implements Recorder {
     const expandEnv = opts.expandEnv ?? true;
     const size = { width: scene.viewport.width, height: scene.viewport.height };
     const chromium = await loadChromium();
-    const browser = await launchBrowser(chromium);
+    const browser = await launchBrowser(chromium, { handleSignals: false });
+    // On an interrupt, close the browser (and with it the video) before exiting.
+    const offInterrupt = onInterrupt(() => browser.close());
     const context = await browser.newContext({
       viewport: size,
       recordVideo: { dir: join(this.outDir, "video"), size },
@@ -224,6 +235,7 @@ export class PlaywrightRecorder implements Recorder {
       }
       throw error;
     } finally {
+      offInterrupt();
       await browser.close();
     }
   }
