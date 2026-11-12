@@ -114,8 +114,9 @@ export class OriginGuard {
     // Later hops must not carry the first request's cookies to another (allowed)
     // origin; without a Cookie header, the context's cookie jar supplies each
     // hop's own cookies.
-    const hopHeaders = { ...req.headers() };
-    delete hopHeaders.cookie;
+    const without = (headers: Record<string, string>, names: string[]) =>
+      Object.fromEntries(Object.entries(headers).filter(([k]) => !names.includes(k)));
+    let hopHeaders = without(req.headers(), ["cookie"]);
     let response: Awaited<ReturnType<Route["fetch"]>>;
     try {
       response = await route.fetch({ maxRedirects: 0, timeout: this.timeoutMs });
@@ -134,8 +135,7 @@ export class OriginGuard {
         if (status !== 307 && status !== 308) {
           method = "GET";
           postData = undefined;
-          delete hopHeaders["content-type"];
-          delete hopHeaders["content-length"];
+          hopHeaders = without(hopHeaders, ["content-type", "content-length"]);
         }
         current = target;
         response = await route.fetch({
@@ -200,8 +200,7 @@ export class OriginGuard {
     const blocked = this.offSite(page);
     if (!blocked) return;
     throw new OriginGuardError(
-      `Same-origin guard: ${where} tried to leave the allowed origins (${[...this.allowed].join(", ")}) for ${blocked}. ` +
-        "No video was written, because the recording may show the other page.",
+      `Same-origin guard: ${where} tried to leave the allowed origins (${[...this.allowed].join(", ")}) for ${blocked}. No video was written, because the recording may show the other page.`,
       blocked,
     );
   }

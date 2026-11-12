@@ -23613,8 +23613,8 @@ var OriginGuard = class {
     let method = req.method();
     let postData = req.postDataBuffer() ?? void 0;
     let status = 0;
-    const hopHeaders = { ...req.headers() };
-    delete hopHeaders.cookie;
+    const without = (headers, names) => Object.fromEntries(Object.entries(headers).filter(([k]) => !names.includes(k)));
+    let hopHeaders = without(req.headers(), ["cookie"]);
     let response;
     try {
       response = await route.fetch({ maxRedirects: 0, timeout: this.timeoutMs });
@@ -23632,8 +23632,7 @@ var OriginGuard = class {
         if (status !== 307 && status !== 308) {
           method = "GET";
           postData = void 0;
-          delete hopHeaders["content-type"];
-          delete hopHeaders["content-length"];
+          hopHeaders = without(hopHeaders, ["content-type", "content-length"]);
         }
         current = target;
         response = await route.fetch({

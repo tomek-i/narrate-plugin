@@ -98,7 +98,6 @@ describe("same-origin guard", { skip }, () => {
   const methods307: string[] = [];
   const secondCookies: string[] = [];
   let second: TestServer;
-  after(() => fileDir.cleanup());
   before(async () => {
     other = await serve((_req, res) => html(res, "<h1>Another site</h1>"));
     // A second *allowed* origin on another host name, so the browser's own
@@ -185,6 +184,7 @@ describe("same-origin guard", { skip }, () => {
     await app.close();
     await other.close();
     await second.close();
+    fileDir.cleanup();
   });
 
   /** Record and return the outcome plus whatever is left in the out dir. */
@@ -301,7 +301,7 @@ describe("same-origin guard", { skip }, () => {
     [
       "a server 3xx to another origin",
       "/",
-      [{ action: "navigate", url: `PLACEHOLDER/redirect-out` }],
+      [{ action: "navigate", url: "PLACEHOLDER/redirect-out" }],
       0.5,
     ],
     ["a link click to another origin", "/", [{ action: "click", selector: "#out" }], 0.5],
