@@ -126,6 +126,14 @@ export const AuthSchema = z.object({
 });
 export type Auth = z.infer<typeof AuthSchema>;
 
+/**
+ * When a page load counts as done (Playwright's `waitUntil`). `networkidle`
+ * waits for 500ms with no requests, which apps that poll (dashboards, dev
+ * servers with HMR, analytics beacons) never reach; use `load` for those.
+ */
+export const WaitUntilSchema = z.enum(["load", "domcontentloaded", "networkidle"]);
+export type WaitUntil = z.infer<typeof WaitUntilSchema>;
+
 /** A full walkthrough: where to go, how big, and the ordered beats. */
 export const SceneSchema = z.object({
   name: z.string().default("scene"),
@@ -136,6 +144,8 @@ export const SceneSchema = z.object({
   theme: z.enum(["light", "dark", "system"]).optional(),
   /** Start already authenticated by loading a saved Playwright storage state. */
   auth: AuthSchema.optional(),
+  /** Override `record.waitUntil` from the config for this scene. */
+  waitUntil: WaitUntilSchema.optional(),
   beats: z.array(BeatSchema).min(1),
 });
 export type Scene = z.infer<typeof SceneSchema>;
@@ -228,6 +238,21 @@ export const ConfigSchema = z.object({
       color: z.string().default("#6366f1"),
     })
     .default({ cursor: true, highlight: true, style: "ring", holdMs: 3000, color: "#6366f1" }),
+  /** How the recorder waits for pages to load. */
+  record: z
+    .object({
+      /**
+       * When a navigation (opening the site, `navigate`, `reload`, and the
+       * settle after clicks/key presses) counts as loaded. With `networkidle`
+       * (default) the page must load first; if the network then never goes
+       * idle, narrate logs a warning and carries on instead of failing.
+       */
+      waitUntil: WaitUntilSchema.default("networkidle"),
+      /** Max time for one page load (ms), including the idle wait. Also the
+       *  timeout for `waitForUrl`, `back` and `forward`. */
+      navigationTimeoutMs: z.number().positive().default(30000),
+    })
+    .default({ waitUntil: "networkidle", navigationTimeoutMs: 30000 }),
 });
 export type Config = z.infer<typeof ConfigSchema>;
 export type OverlayConfig = Config["overlay"];

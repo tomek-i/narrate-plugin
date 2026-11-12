@@ -11,6 +11,7 @@ visual actions (`do`) shown while it plays.
   "site": "http://localhost:3000",
   "viewport": { "width": 1440, "height": 900 },
   "theme": "dark",                              // optional; emulates prefers-color-scheme (light | dark | system)
+  "waitUntil": "load",                          // optional; overrides config record.waitUntil (load | domcontentloaded | networkidle)
   "beats": [
     {
       "id": "intro",
@@ -102,6 +103,16 @@ A referenced variable that isn't set is a hard error (it won't type a literal
 applies to `fill` and `type` text only. Prefer a throwaway/test account here, and
 note the password field is masked in the recording but the value still passes
 through the page — `storageState` avoids that entirely.
+
+## Page loads
+
+Every page load (opening the site, `navigate`, `reload`, and the settle after
+clicks and key presses) waits for `networkidle` by default: 500ms with no network
+requests. Apps that keep polling (dashboards, dev servers with HMR, analytics)
+never reach that; narrate then warns and continues after
+`record.navigationTimeoutMs` (30s by default), which can make beats overrun. Set
+`"waitUntil": "load"` on the scene (or `record.waitUntil` in the config) for those
+apps. See [configuration.md](./configuration.md#page-loads-record).
 
 ## Pacing
 

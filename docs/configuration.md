@@ -59,9 +59,31 @@ skill). The full shape (valid in either file):
     "style": "ring",                           // default highlight style: ring | glow | spotlight
     "holdMs": 3000,                            // how long a highlight pulses before fading back to the clean page
     "color": "#6366f1"                         // accent for cursor, ripple, and highlights
+  },
+  "record": {
+    "waitUntil": "networkidle",                // when a page load is done: load | domcontentloaded | networkidle
+    "navigationTimeoutMs": 30000               // max time for one page load (also waitForUrl/back/forward)
   }
 }
 ```
+
+### Page loads (`record`)
+
+The recorder waits for each page load: opening the site, `navigate`, `reload`,
+and the settle after clicks and key presses. `waitUntil` says when a load counts
+as done:
+
+- `networkidle` (default): no network requests for 500ms. Apps that poll
+  (dashboards, dev servers with live reload/HMR, analytics beacons) never get
+  there. narrate requires the page to `load` first, then waits up to
+  `navigationTimeoutMs` for idle; if idle never comes it logs a warning and
+  carries on, so a polling app doesn't kill the render (but each wait costs up to
+  `navigationTimeoutMs`).
+- `load`: the page's `load` event. The right choice for polling apps.
+- `domcontentloaded`: the HTML is parsed; images and other resources may still be loading.
+
+A scene can override it with its own top-level `waitUntil` (see
+[scenes.md](./scenes.md#page-loads)).
 
 ### On-screen overlays (`overlay`)
 

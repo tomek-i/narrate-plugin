@@ -29,5 +29,9 @@
     "style": "ring",
     "holdMs": 3000,
     "color": "#6366f1"
+  },
+  "record": {
+    "waitUntil": "networkidle",
+    "navigationTimeoutMs": 30000
   }
 }

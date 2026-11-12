@@ -47,6 +47,14 @@
       ],
       "additionalProperties": false
     },
+    "waitUntil": {
+      "type": "string",
+      "enum": [
+        "load",
+        "domcontentloaded",
+        "networkidle"
+      ]
+    },
     "beats": {
       "minItems": 1,
       "type": "array",

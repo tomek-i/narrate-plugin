@@ -84,7 +84,7 @@ export async function render(scene: Scene, config: Config, opts: RenderOptions):
 
   // 2. Record the scene continuously, each beat paced to its narration length.
   log("Recording walkthrough (headless)…");
-  const recorder = new PlaywrightRecorder(outDir, config);
+  const recorder = new PlaywrightRecorder(outDir, config, log);
   // Resolve an auth storage-state path (if any) up front so the recorder gets an
   // absolute path and a missing file fails here with a clear, actionable message.
   let auth = scene.auth;
