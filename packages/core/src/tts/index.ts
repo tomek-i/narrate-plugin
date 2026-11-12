@@ -12,15 +12,16 @@ export { ElevenLabsProvider } from "./elevenlabs.js";
 export { OsTtsProvider } from "./os.js";
 export { MockProvider } from "./mock.js";
 
-export function makeProvider(config: Config): TTSProvider {
+/** `settingsFiles` is only used to say where a missing key was looked for. */
+export function makeProvider(config: Config, settingsFiles?: string[]): TTSProvider {
   switch (config.tts.provider) {
     case "gemini": {
       const g = config.tts.gemini;
-      return new GeminiProvider(resolveApiKey(config), g.voice, g.model);
+      return new GeminiProvider(resolveApiKey(config, settingsFiles), g.voice, g.model);
     }
     case "elevenlabs": {
       const e = config.tts.elevenlabs;
-      return new ElevenLabsProvider(resolveApiKey(config), e.voice, e.model);
+      return new ElevenLabsProvider(resolveApiKey(config, settingsFiles), e.voice, e.model);
     }
     case "os":
       return new OsTtsProvider();

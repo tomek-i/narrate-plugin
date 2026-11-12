@@ -23074,7 +23074,15 @@ function hasApiKey(config2) {
   const envName = apiKeyEnvName(config2);
   return Boolean(envName && process.env[envName]?.trim());
 }
-function resolveApiKey(config2) {
+function settingsFilesChecked(cwd, configPath, globalPath = globalSettingsPath()) {
+  const project = configPath ? resolve(cwd, configPath) : projectSettingsFile(cwd) ?? settingsPath(cwd);
+  return resolve(project) === resolve(globalPath) ? [globalPath] : [globalPath, project];
+}
+var PROVIDER_LABEL = {
+  gemini: "Gemini",
+  elevenlabs: "ElevenLabs"
+};
+function resolveApiKey(config2, settingsFiles) {
   const s = providerSettings(config2);
   if (!s) return "";
   const fromFile = s.key?.trim();
@@ -23083,8 +23091,13 @@ function resolveApiKey(config2) {
   const fromEnv = envName ? process.env[envName]?.trim() : void 0;
   if (fromEnv) return fromEnv;
   const provider = config2.tts.provider;
+  const places = (settingsFiles ?? settingsFilesChecked(process.cwd())).map(
+    (f) => `${f} (${existsSync(f) ? `no tts.${provider}.key` : "not found"})`
+  );
+  if (envName) places.push(`$${envName} (${envName in process.env ? "empty" : "not set"})`);
+  const listed = places.length > 1 ? `${places.slice(0, -1).join(", ")} and ${places.at(-1)}` : places.join("");
   throw new Error(
-    `Missing API key for provider "${provider}". Run \`narrate set-key ${provider} <key>\` to save it in your global settings (~/.narrate/${GLOBAL_SETTINGS_FILE})${envName ? `, or set ${envName}` : ""}.`
+    `No ${PROVIDER_LABEL[provider]} key: checked ${listed}. Run \`narrate set-key ${provider}\` to save one in your global settings${envName ? `, or pass ${envName} through to narrate's environment` : ""}.`
   );
 }
 
@@ -24224,15 +24237,15 @@ function silent(text) {
 }
 
 // src/tts/index.ts
-function makeProvider(config2) {
+function makeProvider(config2, settingsFiles) {
   switch (config2.tts.provider) {
     case "gemini": {
       const g = config2.tts.gemini;
-      return new GeminiProvider(resolveApiKey(config2), g.voice, g.model);
+      return new GeminiProvider(resolveApiKey(config2, settingsFiles), g.voice, g.model);
     }
     case "elevenlabs": {
       const e = config2.tts.elevenlabs;
-      return new ElevenLabsProvider(resolveApiKey(config2), e.voice, e.model);
+      return new ElevenLabsProvider(resolveApiKey(config2, settingsFiles), e.voice, e.model);
     }
     case "os":
       return new OsTtsProvider();
@@ -24286,7 +24299,7 @@ async function render(scene, config2, opts) {
   const outDir = resolve3(opts.cwd, config2.output.dir);
   const audioDir = join5(outDir, "audio");
   mkdirSync3(audioDir, { recursive: true });
-  const provider = makeProvider(config2);
+  const provider = makeProvider(config2, opts.settingsFiles);
   const activeVoice = config2.tts.provider === "gemini" ? config2.tts.gemini.voice : config2.tts.provider === "elevenlabs" ? config2.tts.elevenlabs.voice : provider.name;
   log(`Generating narration with "${provider.name}" (voice: ${activeVoice})\u2026`);
   const durations = {};
@@ -24373,11 +24386,11 @@ ${mux.stderr.trim().split("\n").slice(-12).join("\n")}`);
 }
 
 // src/tts/voices.ts
-async function listVoices(config2) {
+async function listVoices(config2, settingsFiles) {
   const provider = config2.tts.provider;
   if (provider === "elevenlabs") {
     const res = await fetch("https://api.elevenlabs.io/v1/voices", {
-      headers: { "xi-api-key": resolveApiKey(config2) }
+      headers: { "xi-api-key": resolveApiKey(config2, settingsFiles) }
     });
     if (!res.ok) throw new Error(`ElevenLabs voices HTTP ${res.status}: ${await res.text()}`);
     const json2 = await res.json();
@@ -24423,6 +24436,7 @@ program2.command("render").description("TTS \u2192 record \u2192 mux into one na
   const out = await render(scene, config2, {
     cwd,
     scenePath: o.scene,
+    settingsFiles: settingsFilesChecked(cwd, o.config),
     onLog: (m) => console.log(m)
   });
   console.log(`
@@ -24458,7 +24472,11 @@ program2.command("auth").description(
   console.log(`Use it in a scene:  "auth": { "storageState": "${o.out}" }`);
 });
 program2.command("voices").description("List TTS voices your configured key can use (helps pick a free-tier voice).").option("-c, --config <file>", CONFIG_HELP).action(async (o) => {
-  const { provider, voices, note } = await listVoices(loadConfig(process.cwd(), o.config));
+  const cwd = process.cwd();
+  const { provider, voices, note } = await listVoices(
+    loadConfig(cwd, o.config),
+    settingsFilesChecked(cwd, o.config)
+  );
   if (note) console.log(note);
   for (const v of voices) {
     console.log(`${v.id}  ${v.name}${v.category ? `  (${v.category})` : ""}`);

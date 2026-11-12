@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { Command } from "commander";
 import { captureAuth } from "./auth.js";
-import { loadConfig, loadConfigLayers, loadScene } from "./config.js";
+import { loadConfig, loadConfigLayers, loadScene, settingsFilesChecked } from "./config.js";
 import { render } from "./pipeline.js";
 import { checkEnv, initProject, setKey, setVoice } from "./project.js";
 import { readSecret } from "./secret.js";
@@ -40,6 +40,7 @@ program
     const out = await render(scene, config, {
       cwd,
       scenePath: o.scene,
+      settingsFiles: settingsFilesChecked(cwd, o.config),
       onLog: (m) => console.log(m),
     });
     console.log(`\n✅ Done → ${out}`);
@@ -101,7 +102,11 @@ program
   .description("List TTS voices your configured key can use (helps pick a free-tier voice).")
   .option("-c, --config <file>", CONFIG_HELP)
   .action(async (o) => {
-    const { provider, voices, note } = await listVoices(loadConfig(process.cwd(), o.config));
+    const cwd = process.cwd();
+    const { provider, voices, note } = await listVoices(
+      loadConfig(cwd, o.config),
+      settingsFilesChecked(cwd, o.config),
+    );
     if (note) console.log(note);
     for (const v of voices) {
       console.log(`${v.id}  ${v.name}${v.category ? `  (${v.category})` : ""}`);

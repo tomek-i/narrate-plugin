@@ -8,6 +8,7 @@ export {
   resolveApiKey,
   apiKeyEnvName,
   hasApiKey,
+  settingsFilesChecked,
   settingsPath,
   globalSettingsPath,
   SETTINGS_FILE,

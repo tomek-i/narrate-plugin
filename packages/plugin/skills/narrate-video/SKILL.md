@@ -275,6 +275,13 @@ Two roles — keep them separate so it doesn't look random:
   Two optional `output` flags add sidecar files next to the video: `"vtt": true`
   writes a `<name>.vtt` caption track (one cue per beat, timed to the narration),
   and `"keepScene": true` keeps a `<name>.scene.json` copy for later re-renders.
+- **Environment:** narrate reads `NARRATE_HOME` (global settings dir), the key
+  variables `NARRATE_GEMINI_API_KEY` / `NARRATE_ELEVENLABS_API_KEY` (or the custom
+  name in `tts.<provider>.apiKeyEnv`), any `${NAME}` a scene references,
+  `PATH` (ffmpeg, OS voice) and Playwright's `PLAYWRIGHT_BROWSERS_PATH`. When
+  you run it with a filtered environment, pass those through. A missing-key
+  error lists every settings file and variable it checked. Full table:
+  `docs/configuration.md#environment-variables` in the narrate repo.
 - **Theme:** the optional scene-level `theme` emulates the browser's
   `prefers-color-scheme` (the standard OS/browser color-scheme signal), so it
   works for any site that honors that media query. Apps with a *manual* toggle
