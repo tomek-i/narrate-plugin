@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { Command } from "commander";
 import { captureAuth } from "./auth.js";
 import { loadConfig, loadConfigLayers, loadScene, settingsFilesChecked } from "./config.js";
@@ -53,8 +55,14 @@ program
   .option("--log <file>", "write the diagnostic log here (default: <out>/narrate.log)")
   .action(async (o: RenderFlags) => {
     if (!o.json) {
-      const result = await renderCommand(o, (m) => console.log(m));
-      console.log(`\n✅ Done → ${result.video}`);
+      try {
+        const result = await renderCommand(o, (m) => console.log(m));
+        console.log(`\n✅ Done → ${result.video}`);
+      } catch (err) {
+        // A RenderError has already been shown through the log; don't repeat it.
+        if (!(err instanceof RenderError)) throw err;
+        process.exitCode = 1;
+      }
       return;
     }
     // With --json, stdout carries exactly one JSON object; everything else is stderr.
@@ -68,12 +76,31 @@ program
           // Errors before the render starts (config, scene file) are input problems.
           stage: err instanceof RenderError ? err.stage : "validate",
           error: err instanceof Error ? err.message : String(err),
-          log: err instanceof RenderError ? err.log : null,
+          log: err instanceof RenderError ? err.log : inputErrorLog(o.log, err),
         }),
       );
       process.exitCode = 1;
     }
   });
+
+/**
+ * For an error before the render started (config, scene file, flags): write it
+ * to `--log` if one was given, so the caller finds a log where it asked for one.
+ */
+function inputErrorLog(logFile: string | undefined, err: unknown): string | null {
+  if (!logFile) return null;
+  const path = resolve(process.cwd(), logFile);
+  try {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, `❌ ${err instanceof Error ? err.message : String(err)}\n`);
+    return path;
+  } catch (writeErr) {
+    console.error(
+      `⚠️  Could not write the diagnostic log ${path}: ${writeErr instanceof Error ? writeErr.message : writeErr}`,
+    );
+    return null;
+  }
+}
 
 interface RenderFlags {
   scene: string;

@@ -3040,6 +3040,10 @@ var require_commander = __commonJS({
   }
 });
 
+// src/cli.ts
+import { mkdirSync as mkdirSync4, writeFileSync as writeFileSync5 } from "fs";
+import { dirname as dirname6, resolve as resolve5 } from "path";
+
 // ../../node_modules/.pnpm/commander@12.1.0/node_modules/commander/esm.mjs
 var import_index = __toESM(require_commander(), 1);
 var {
@@ -8138,7 +8142,7 @@ var recursive = /* @__PURE__ */ new WeakMap();
 var NONE = 0;
 var ASSUMED = 1;
 var PROVEN = 2;
-function isRecursive(inst, stack, resolve5) {
+function isRecursive(inst, stack, resolve6) {
   const cached2 = recursive.get(inst);
   if (cached2 !== void 0)
     return cached2 ? PROVEN : NONE;
@@ -8148,7 +8152,7 @@ function isRecursive(inst, stack, resolve5) {
   let result = NONE;
   const check2 = (child) => {
     if (result !== PROVEN && child?._zod) {
-      const answer = isRecursive(child, stack, resolve5);
+      const answer = isRecursive(child, stack, resolve6);
       if (answer > result)
         result = answer;
     }
@@ -8159,7 +8163,7 @@ function isRecursive(inst, stack, resolve5) {
       const desc = Object.getOwnPropertyDescriptor(sh, key);
       if (spread && !desc.enumerable)
         continue;
-      const child = desc.get ? ASSUMED : desc.value?._zod ? isRecursive(desc.value, stack, resolve5) : NONE;
+      const child = desc.get ? ASSUMED : desc.value?._zod ? isRecursive(desc.value, stack, resolve6) : NONE;
       if (child > answer)
         answer = child;
     }
@@ -8223,7 +8227,7 @@ function isRecursive(inst, stack, resolve5) {
       break;
     // `$ZodLazy` caches its inner on the def, so a resolved edge is followed exactly
     case "lazy": {
-      const inner = def._cachedInner ?? (resolve5 ? inst._zod.innerType : void 0);
+      const inner = def._cachedInner ?? (resolve6 ? inst._zod.innerType : void 0);
       merge2(inner ? isRecursive(inner, stack, false) : ASSUMED);
       break;
     }
@@ -23330,7 +23334,7 @@ function readClipboard() {
   throw new Error("Couldn't read the clipboard (on Linux install wl-paste, xclip or xsel).");
 }
 function promptHidden(question) {
-  return new Promise((resolve5) => {
+  return new Promise((resolve6) => {
     const rl = createInterface({ input: process.stdin, output: process.stdout, terminal: true });
     const out = rl;
     let prompted = false;
@@ -23343,7 +23347,7 @@ function promptHidden(question) {
     rl.question(question, (answer) => {
       rl.close();
       process.stdout.write("\n");
-      resolve5(answer);
+      resolve6(answer);
     });
   });
 }
@@ -24758,8 +24762,9 @@ function audioProblem(present, meanVolume2) {
   if (!present) {
     return "the final video has NO audio stream \u2014 the mux dropped the narration entirely";
   }
-  if (!meanVolume2 || /-(9\d(\.\d+)?|inf) dB/.test(meanVolume2)) {
-    return "the final video's audio track is silent (near -inf dB)";
+  const db = parseDb(meanVolume2);
+  if (db === null || db <= -90) {
+    return `the final video's audio track is silent (mean volume ${meanVolume2 ?? "unmeasurable"})`;
   }
   return null;
 }
@@ -24788,8 +24793,7 @@ async function renderScene(scene, config2, opts) {
   let stage = "validate";
   try {
     const result = await run2();
-    writeLog();
-    return { ...result, log: logPath };
+    return { ...result, log: writeLog() };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log(`\u274C Failed while ${STAGE_LABEL[stage]}: ${message}`);
@@ -24846,9 +24850,10 @@ ${formatProblems(problems)}`
       installPlaywrightPackage(log);
       installChromium(log);
     }
+    stage = "tts";
     const audioDir = join5(outDir, "audio");
     mkdirSync3(audioDir, { recursive: true });
-    stage = "tts";
+    const requireAudio = Boolean(opts.requireAudio) && config2.tts.provider !== "mock";
     const activeVoice = config2.tts.provider === "gemini" ? config2.tts.gemini.voice : config2.tts.provider === "elevenlabs" ? config2.tts.elevenlabs.voice : provider.name;
     log(`Generating narration with "${provider.name}" (voice: ${activeVoice})\u2026`);
     const durations = {};
@@ -24857,6 +24862,12 @@ ${formatProblems(problems)}`
       const res = await provider.synth(beat.say, { voice: beat.voice });
       const wavPath = join5(audioDir, `beat-${String(i + 1).padStart(3, "0")}.wav`);
       normalizeToWav(res.audio, wavPath);
+      const beatVolume = requireAudio ? meanVolume(wavPath) : null;
+      if (requireAudio && audioProblem(true, beatVolume)) {
+        throw new Error(
+          `beat "${beat.id}": the "${provider.name}" voice produced silent narration (mean volume ${beatVolume ?? "unmeasurable"})`
+        );
+      }
       durations[beat.id] = probeDuration(wavPath);
       wavs.push(wavPath);
       log(`  ${beat.id}: ${durations[beat.id].toFixed(2)}s`);
@@ -24906,7 +24917,7 @@ ${mux.stderr.trim().split("\n").slice(-12).join("\n")}`);
     const problem = audioProblem(audioOk, finalVol);
     const silent2 = problem !== null;
     if (problem) {
-      if (opts.requireAudio && config2.tts.provider !== "mock") {
+      if (requireAudio) {
         rmSync3(finalOut, { force: true });
         throw new Error(`${problem}; the video was removed.`);
       }
@@ -25003,9 +25014,14 @@ program2.command("render").description("TTS \u2192 record \u2192 mux into one na
   "load this saved session (overrides the scene's auth.storageState; the only way under --untrusted)"
 ).option("--json", "print one JSON result object on stdout; all other output goes to stderr").option("--log <file>", "write the diagnostic log here (default: <out>/narrate.log)").action(async (o) => {
   if (!o.json) {
-    const result = await renderCommand(o, (m) => console.log(m));
-    console.log(`
+    try {
+      const result = await renderCommand(o, (m) => console.log(m));
+      console.log(`
 \u2705 Done \u2192 ${result.video}`);
+    } catch (err) {
+      if (!(err instanceof RenderError)) throw err;
+      process.exitCode = 1;
+    }
     return;
   }
   try {
@@ -25018,12 +25034,27 @@ program2.command("render").description("TTS \u2192 record \u2192 mux into one na
         // Errors before the render starts (config, scene file) are input problems.
         stage: err instanceof RenderError ? err.stage : "validate",
         error: err instanceof Error ? err.message : String(err),
-        log: err instanceof RenderError ? err.log : null
+        log: err instanceof RenderError ? err.log : inputErrorLog(o.log, err)
       })
     );
     process.exitCode = 1;
   }
 });
+function inputErrorLog(logFile, err) {
+  if (!logFile) return null;
+  const path = resolve5(process.cwd(), logFile);
+  try {
+    mkdirSync4(dirname6(path), { recursive: true });
+    writeFileSync5(path, `\u274C ${err instanceof Error ? err.message : String(err)}
+`);
+    return path;
+  } catch (writeErr) {
+    console.error(
+      `\u26A0\uFE0F  Could not write the diagnostic log ${path}: ${writeErr instanceof Error ? writeErr.message : writeErr}`
+    );
+    return null;
+  }
+}
 async function renderCommand(o, say) {
   const cwd = process.cwd();
   const config2 = loadConfig(cwd, o.config);

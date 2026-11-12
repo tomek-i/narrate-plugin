@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { after, before, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -19,14 +19,26 @@ const tmp = tempDir("narrate-render-json-");
 const home = join(tmp.dir, "home");
 mkdirSync(home);
 
-/** Run the CLI asynchronously: the test server lives in this process and must keep answering. */
+/** Run `render --json`; the result must be exactly one JSON line on stdout. */
 async function runRender(...args: string[]) {
+  return runRenderWith({}, ...args);
+}
+
+async function runRenderWith(extraEnv: NodeJS.ProcessEnv, ...args: string[]) {
+  const { status, stdout, stderr } = await runCli(extraEnv, "--json", ...args);
+  const lines = stdout.trim().split("\n");
+  assert.equal(lines.length, 1, `stdout must be exactly one line:\n${stdout}\nstderr:\n${stderr}`);
+  return { status, out: JSON.parse(lines[0]), stderr };
+}
+
+/** Run the CLI asynchronously: the test server lives in this process and must keep answering. */
+async function runCli(extraEnv: NodeJS.ProcessEnv, ...args: string[]) {
   const env = Object.fromEntries(
     Object.entries(process.env).filter(([k]) => !/API_KEY/i.test(k)),
   ) as NodeJS.ProcessEnv;
-  const child = spawn(process.execPath, ["--import", tsx, cli, "render", "--json", ...args], {
+  const child = spawn(process.execPath, ["--import", tsx, cli, "render", ...args], {
     cwd: tmp.dir,
-    env: { ...env, NARRATE_HOME: home },
+    env: { ...env, NARRATE_HOME: home, ...extraEnv },
   });
   let stdout = "";
   let stderr = "";
@@ -37,9 +49,7 @@ async function runRender(...args: string[]) {
     stderr += d;
   });
   const [status] = (await once(child, "close")) as [number | null];
-  const lines = stdout.trim().split("\n");
-  assert.equal(lines.length, 1, `stdout must be exactly one line:\n${stdout}\nstderr:\n${stderr}`);
-  return { status, out: JSON.parse(lines[0]), stderr };
+  return { status, stdout, stderr };
 }
 
 function sceneFile(name: string, scene: unknown): string {
@@ -91,6 +101,53 @@ describe("render --json", () => {
     assert.deepEqual([r.out.ok, r.out.stage, r.out.log], [false, "validate", null]);
   });
 
+  test("with --log, an error before the render starts is still logged there", async () => {
+    const scene = sceneFile("cfg.json", unreachable("cfg"));
+    const r = await runRender("--scene", scene, "--config", "nope.json", "--log", "logs/cfg.log");
+    assert.equal(r.status, 1);
+    assert.equal(r.out.stage, "validate");
+    assert.equal(r.out.log, join(tmp.dir, "logs", "cfg.log"));
+    assert.match(readFileSync(r.out.log, "utf8"), /nope\.json/);
+  });
+
+  test("a rejected scene with --log writes the log there", async () => {
+    const scene = sceneFile("dup-log.json", {
+      site: "http://127.0.0.1:1",
+      beats: [
+        { id: "a", say: "x" },
+        { id: "a", say: "y" },
+      ],
+    });
+    const r = await runRender("--scene", scene, "--provider", "mock", "--log", "logs/dup.log");
+    assert.equal(r.out.stage, "validate");
+    assert.equal(r.out.log, join(tmp.dir, "logs", "dup.log"));
+    assert.match(readFileSync(r.out.log, "utf8"), /duplicate beat id/);
+  });
+
+  test("without ffmpeg on PATH the failure is stage setup", async () => {
+    const scene = sceneFile("setup.json", unreachable("setup"));
+    const r = await runRenderWith(
+      { PATH: "", Path: "" },
+      "--scene",
+      scene,
+      "--provider",
+      "mock",
+      "--out",
+      "out-setup",
+    );
+    assert.equal(r.status, 1, r.stderr);
+    assert.equal(r.out.stage, "setup");
+    assert.match(r.out.error, /ffmpeg/);
+  });
+
+  test("without --json a failure is printed once and exits 1", async () => {
+    const scene = sceneFile("tts-text.json", unreachable("tts-text"));
+    const r = await runCli({}, "--scene", scene, "--provider", "gemini", "--out", "out-text");
+    assert.equal(r.status, 1);
+    const all = r.stdout + r.stderr;
+    assert.equal(all.split("No Gemini key").length - 1, 1, all);
+  });
+
   test("a TTS failure reports stage tts and writes the log to --log", async () => {
     const scene = sceneFile("tts.json", unreachable("tts"));
     const r = await runRender("--scene", scene, "--provider", "gemini", "--log", "logs/tts.log");
@@ -135,6 +192,7 @@ test("audioProblem: no stream, silence and unmeasurable volume are problems", ()
   assert.match(audioProblem(false, "-20.0 dB") ?? "", /NO audio stream/);
   assert.match(audioProblem(true, "-inf dB") ?? "", /silent/);
   assert.match(audioProblem(true, "-91.0 dB") ?? "", /silent/);
+  assert.match(audioProblem(true, "-120.5 dB") ?? "", /silent/);
   assert.match(audioProblem(true, null) ?? "", /silent/);
   assert.equal(audioProblem(true, "-24.7 dB"), null);
 });

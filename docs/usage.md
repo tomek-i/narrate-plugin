@@ -92,19 +92,23 @@ code is 0 on success and 1 on failure.
 ```
 
 ```json
-{ "ok": false, "stage": "tts", "error": "No API key for gemini …", "log": "/abs/out/narrate.log" }
+{ "ok": false, "stage": "tts", "error": "No Gemini key: checked …", "log": "/abs/out/narrate.log" }
 ```
 
 - Paths are absolute. `captions` is null when `output.vtt` is off.
-- `stage` says where it failed: `validate` (config, scene file or scene checks;
-  nothing was rendered), `setup` (ffmpeg or the browser), `tts`, `record` or `mux`.
-- `log` is the diagnostic log. It is null when a `validate` failure happens before
-  rendering starts and no `--log` was given (a rejected scene writes nothing to
-  the output folder), or when the log couldn't be written.
-- With `--json`, a video with no audio stream or silent audio is a failure
-  (stage `mux`) and the video is removed, so a caller never publishes a "narrated"
-  video without narration. The `mock` provider is exempt: its narration is silent
-  by design, and its result reports `"silent": true`.
+- `stage` says where it failed: `validate` (config, scene file, flags, scene
+  checks or a missing saved-session file; nothing was rendered), `setup` (ffmpeg
+  or the browser), `tts`, `record` or `mux`.
+- `log` is the diagnostic log. It is null when a `validate` failure happens and
+  no `--log` was given (a rejected scene writes nothing to the output folder), or
+  when the log couldn't be written, on success too.
+- With `--json`, silent narration is a failure: a beat whose speech is silent
+  (e.g. the OS voice is unavailable and fell back to silence) fails at stage
+  `tts` before anything is recorded, and a final video with no audio stream or
+  silent audio (mean volume unmeasurable or ≤ -90 dB) fails at stage `mux` and
+  the video is removed. A caller never gets a "narrated" video without
+  narration. The `mock` provider is exempt: its narration is silent by design,
+  and its result reports `"silent": true`.
 - A usage error (e.g. `--scene` missing) is reported by the argument parser as
   plain text on stderr, with nothing on stdout and exit code 1.
 

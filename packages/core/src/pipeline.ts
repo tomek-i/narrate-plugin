@@ -83,8 +83,8 @@ export interface RenderResult {
     /** No stream, or a near-silent one (≤ -90 dB). */
     silent: boolean;
   };
-  /** Absolute path of the diagnostic log. */
-  log: string;
+  /** Absolute path of the diagnostic log, or null if it couldn't be written. */
+  log: string | null;
 }
 
 /** A `site` that isn't a URL is treated as a local file path → `file://` URL. */
@@ -107,8 +107,9 @@ export function audioProblem(present: boolean, meanVolume: string | null): strin
   if (!present) {
     return "the final video has NO audio stream — the mux dropped the narration entirely";
   }
-  if (!meanVolume || /-(9\d(\.\d+)?|inf) dB/.test(meanVolume)) {
-    return "the final video's audio track is silent (near -inf dB)";
+  const db = parseDb(meanVolume);
+  if (db === null || db <= -90) {
+    return `the final video's audio track is silent (mean volume ${meanVolume ?? "unmeasurable"})`;
   }
   return null;
 }
@@ -157,8 +158,7 @@ export async function renderScene(
   let stage: RenderStage = "validate";
   try {
     const result = await run();
-    writeLog();
-    return { ...result, log: logPath };
+    return { ...result, log: writeLog() };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log(`❌ Failed while ${STAGE_LABEL[stage]}: ${message}`);
@@ -230,11 +230,13 @@ export async function renderScene(
       installChromium(log);
     }
 
-    const audioDir = join(outDir, "audio");
-    mkdirSync(audioDir, { recursive: true });
-
     // 1. TTS — synth each beat and measure its real duration.
     stage = "tts";
+    const audioDir = join(outDir, "audio");
+    mkdirSync(audioDir, { recursive: true });
+    // A caller that requires audio must not wait for a whole recording to learn
+    // the voice was silent (the OS voice falls back to silence when unavailable).
+    const requireAudio = Boolean(opts.requireAudio) && config.tts.provider !== "mock";
     const activeVoice =
       config.tts.provider === "gemini"
         ? config.tts.gemini.voice
@@ -251,6 +253,12 @@ export async function renderScene(
       // Named by position, not id: an id is free text and mustn't become a path.
       const wavPath = join(audioDir, `beat-${String(i + 1).padStart(3, "0")}.wav`);
       normalizeToWav(res.audio, wavPath);
+      const beatVolume = requireAudio ? meanVolume(wavPath) : null;
+      if (requireAudio && audioProblem(true, beatVolume)) {
+        throw new Error(
+          `beat "${beat.id}": the "${provider.name}" voice produced silent narration (mean volume ${beatVolume ?? "unmeasurable"})`,
+        );
+      }
       durations[beat.id] = probeDuration(wavPath);
       wavs.push(wavPath);
       log(`  ${beat.id}: ${durations[beat.id].toFixed(2)}s`);
@@ -308,7 +316,7 @@ export async function renderScene(
     const problem = audioProblem(audioOk, finalVol);
     const silent = problem !== null;
     if (problem) {
-      if (opts.requireAudio && config.tts.provider !== "mock") {
+      if (requireAudio) {
         // Don't leave a "narrated" video without narration where a caller might publish it.
         rmSync(finalOut, { force: true });
         throw new Error(`${problem}; the video was removed.`);
