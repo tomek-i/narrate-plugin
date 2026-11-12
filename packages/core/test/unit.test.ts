@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
@@ -354,6 +354,35 @@ test(
     }
   },
 );
+
+test("the OS voice removes its scratch folder even when the voice fails", async () => {
+  const scratchDirs = () =>
+    new Set(readdirSync(tmpdir()).filter((n) => n.startsWith("narrate-os-")));
+  const before = scratchDirs();
+  // No PowerShell, `say` or espeak can be found, so synthesis fails (and falls back to silence).
+  const saved = {
+    PATH: process.env.PATH,
+    Path: process.env.Path,
+    SystemRoot: process.env.SystemRoot,
+  };
+  process.env.PATH = "";
+  process.env.Path = "";
+  process.env.SystemRoot = join(tmpdir(), "no-windows-here");
+  const warn = console.warn;
+  console.warn = () => {};
+  try {
+    const res = await new OsTtsProvider().synth("Hello.");
+    assert.ok(res.audio.length > 0, "falls back to silent audio");
+  } finally {
+    console.warn = warn;
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) Reflect.deleteProperty(process.env, k);
+      else process.env[k] = v;
+    }
+  }
+  const leaked = [...scratchDirs()].filter((n) => !before.has(n));
+  assert.deepEqual(leaked, [], "scratch folders left in the temp dir");
+});
 
 test("render in untrusted mode rejects a scene before any work, from the flag or the scene", async () => {
   const root = mkdtempSync(join(tmpdir(), "narrate-untrusted-"));
