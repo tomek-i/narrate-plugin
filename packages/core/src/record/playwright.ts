@@ -2,7 +2,7 @@ import { join } from "node:path";
 import type { Browser, BrowserType, Page } from "playwright";
 import { interpolateEnv } from "../env.js";
 import { installChromium } from "../setup.js";
-import type { Config, Durations, OverlayConfig, Scene, Step } from "../types.js";
+import type { Config, Durations, OverlayConfig, Scene, Step, WaitUntil } from "../types.js";
 import { OVERLAY_SCRIPT } from "./overlay.js";
 import type { RecordResult, Recorder } from "./recorder.js";
 
@@ -21,6 +21,13 @@ declare global {
 }
 
 type HighlightStyle = "ring" | "glow" | "spotlight";
+
+/** How page loads are awaited during a recording (see config `record`). */
+interface PageLoad {
+  waitUntil: WaitUntil;
+  timeoutMs: number;
+  warn: (msg: string) => void;
+}
 
 /**
  * Load Playwright lazily so the bundled CLI can run TTS-only paths (and `narrate
@@ -78,6 +85,8 @@ export class PlaywrightRecorder implements Recorder {
   constructor(
     private outDir: string,
     private config: Config,
+    /** Where warnings go (the pipeline passes its logger so they reach narrate.log). */
+    private log: (msg: string) => void = (msg) => console.warn(`[narrate] ${msg}`),
   ) {}
 
   async record(scene: Scene, durations: Durations): Promise<RecordResult> {
@@ -106,9 +115,21 @@ export class PlaywrightRecorder implements Recorder {
 
     const contextStart = Date.now();
     const page = await context.newPage();
+    const pl: PageLoad = {
+      waitUntil: scene.waitUntil ?? this.config.record.waitUntil,
+      timeoutMs: this.config.record.navigationTimeoutMs,
+      warn: (msg) => this.log(`⚠️  ${msg}`),
+    };
+    // Covers goto/reload/back/forward/waitForURL; load-state waits pass it explicitly.
+    page.setDefaultNavigationTimeout(pl.timeoutMs);
 
     try {
-      await page.goto(scene.site, { waitUntil: "networkidle" });
+      await loadPage(
+        page,
+        (waitUntil) => page.goto(scene.site, { waitUntil }),
+        pl,
+        "Opening the site",
+      );
       await page.evaluate(() => window.scrollTo(0, 0));
       await page.waitForTimeout(400); // let fonts/layout settle
 
@@ -130,14 +151,14 @@ export class PlaywrightRecorder implements Recorder {
             beat.focusLabel,
           );
         }
-        for (const step of beat.do) await runStep(page, step, fx);
+        for (const step of beat.do) await runStep(page, step, fx, pl);
         // Pad (or warn) so the beat ends exactly on the audio boundary.
         const remaining = targetEnd - (Date.now() - t0);
         if (remaining > 0) await page.waitForTimeout(remaining);
         else if (remaining < -150) {
           // visuals overran the narration — sync will drift for later beats
-          console.warn(
-            `[narrate] beat "${beat.id}" visuals overran narration by ${-remaining}ms; shorten its steps or lengthen the narration.`,
+          pl.warn(
+            `beat "${beat.id}" visuals overran narration by ${-remaining}ms; shorten its steps or lengthen the narration.`,
           );
         }
         // Clear everything between beats for a predictable, clean slate.
@@ -161,9 +182,35 @@ const COLOR_SCHEME = {
   system: "no-preference",
 } as const;
 
-// Steps that may trigger a navigation; swallow networkidle timeouts on SPAs.
-async function settle(page: Page): Promise<void> {
-  await page.waitForLoadState("networkidle").catch(() => {});
+const idleWarning = (what: string, pl: PageLoad) =>
+  `${what}: the network never went idle within ${pl.timeoutMs}ms (does the page poll?); continuing. Set record.waitUntil (or the scene's waitUntil) to "load" to skip this wait.`;
+
+/**
+ * Run a navigation and wait for it per `pl.waitUntil`. For `networkidle`, the
+ * page must reach `load` (a hard failure if it doesn't), then idle is awaited as
+ * a soft wait: apps that poll never go idle, and that shouldn't kill a render.
+ */
+async function loadPage(
+  page: Page,
+  go: (waitUntil: WaitUntil) => Promise<unknown>,
+  pl: PageLoad,
+  what: string,
+): Promise<void> {
+  if (pl.waitUntil !== "networkidle") {
+    await go(pl.waitUntil);
+    return;
+  }
+  await go("load");
+  await page
+    .waitForLoadState("networkidle", { timeout: pl.timeoutMs })
+    .catch(() => pl.warn(idleWarning(what, pl)));
+}
+
+// Steps that may trigger a navigation (or none at all — SPAs), so this never fails.
+async function settle(page: Page, pl: PageLoad, what: string): Promise<void> {
+  await page.waitForLoadState(pl.waitUntil, { timeout: pl.timeoutMs }).catch(() => {
+    if (pl.waitUntil === "networkidle") pl.warn(idleWarning(what, pl));
+  });
 }
 
 // --- overlay drivers (call the injected window.__narrate API) -----------------
@@ -209,7 +256,7 @@ async function clearHighlight(page: Page, selector?: string): Promise<void> {
     .catch(() => {});
 }
 
-async function runStep(page: Page, step: Step, fx: OverlayConfig): Promise<void> {
+async function runStep(page: Page, step: Step, fx: OverlayConfig, pl: PageLoad): Promise<void> {
   switch (step.action) {
     // --- timing ---
     case "wait":
@@ -224,18 +271,23 @@ async function runStep(page: Page, step: Step, fx: OverlayConfig): Promise<void>
 
     // --- navigation ---
     case "navigate":
-      await page.goto(step.url, { waitUntil: "networkidle" });
+      await loadPage(
+        page,
+        (waitUntil) => page.goto(step.url, { waitUntil }),
+        pl,
+        `navigate ${step.url}`,
+      );
       return;
     case "back":
       await page.goBack().catch(() => {});
-      await settle(page);
+      await settle(page, pl, "back");
       return;
     case "forward":
       await page.goForward().catch(() => {});
-      await settle(page);
+      await settle(page, pl, "forward");
       return;
     case "reload":
-      await page.reload({ waitUntil: "networkidle" });
+      await loadPage(page, (waitUntil) => page.reload({ waitUntil }), pl, "reload");
       return;
 
     // --- mouse ---
@@ -243,13 +295,13 @@ async function runStep(page: Page, step: Step, fx: OverlayConfig): Promise<void>
       if (fx.cursor) await pointTo(page, step.selector);
       await page.click(step.selector);
       if (fx.cursor) await ripple(page, step.selector);
-      await settle(page);
+      await settle(page, pl, `click ${step.selector}`);
       return;
     case "dblclick":
       if (fx.cursor) await pointTo(page, step.selector);
       await page.dblclick(step.selector);
       if (fx.cursor) await ripple(page, step.selector);
-      await settle(page);
+      await settle(page, pl, `dblclick ${step.selector}`);
       return;
     case "hover":
       if (fx.cursor) await pointTo(page, step.selector);
@@ -278,7 +330,7 @@ async function runStep(page: Page, step: Step, fx: OverlayConfig): Promise<void>
     case "press":
       if (step.selector) await page.press(step.selector, step.key);
       else await page.keyboard.press(step.key);
-      await settle(page);
+      await settle(page, pl, `press ${step.key}`);
       return;
     case "selectOption":
       if (fx.cursor) await pointTo(page, step.selector);

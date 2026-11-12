@@ -22889,6 +22889,7 @@ var AuthSchema = external_exports.object({
   /** Path to a Playwright storageState JSON, resolved relative to the cwd. */
   storageState: external_exports.string()
 });
+var WaitUntilSchema = external_exports.enum(["load", "domcontentloaded", "networkidle"]);
 var SceneSchema = external_exports.object({
   name: external_exports.string().default("scene"),
   site: external_exports.string(),
@@ -22896,6 +22897,8 @@ var SceneSchema = external_exports.object({
   theme: external_exports.enum(["light", "dark", "system"]).optional(),
   /** Start already authenticated by loading a saved Playwright storage state. */
   auth: AuthSchema.optional(),
+  /** Override `record.waitUntil` from the config for this scene. */
+  waitUntil: WaitUntilSchema.optional(),
   beats: external_exports.array(BeatSchema).min(1)
 });
 var ConfigSchema = external_exports.object({
@@ -22975,7 +22978,19 @@ var ConfigSchema = external_exports.object({
     holdMs: external_exports.number().min(0).default(3e3),
     /** Accent color (CSS) for the cursor, ripple, and highlights. */
     color: external_exports.string().default("#6366f1")
-  }).default({ cursor: true, highlight: true, style: "ring", holdMs: 3e3, color: "#6366f1" })
+  }).default({ cursor: true, highlight: true, style: "ring", holdMs: 3e3, color: "#6366f1" }),
+  /** How the recorder waits for pages to load. */
+  record: external_exports.object({
+    /**
+     * When a navigation (opening the site, `navigate`, `reload`, and the
+     * settle after clicks/key presses) counts as loaded. With `networkidle`
+     * (default) the page must load first; if the network then never goes
+     * idle, narrate logs a warning and carries on instead of failing.
+     */
+    waitUntil: WaitUntilSchema.default("networkidle"),
+    /** Max time for one page load (ms). */
+    navigationTimeoutMs: external_exports.number().positive().default(3e4)
+  }).default({ waitUntil: "networkidle", navigationTimeoutMs: 3e4 })
 });
 
 // src/config.ts
@@ -23704,12 +23719,14 @@ async function loadChromium() {
   }
 }
 var PlaywrightRecorder = class {
-  constructor(outDir, config2) {
+  constructor(outDir, config2, log = (msg) => console.warn(`[narrate] ${msg}`)) {
     this.outDir = outDir;
     this.config = config2;
+    this.log = log;
   }
   outDir;
   config;
+  log;
   async record(scene, durations) {
     const size = { width: scene.viewport.width, height: scene.viewport.height };
     const chromium = await loadChromium();
@@ -23733,8 +23750,19 @@ var PlaywrightRecorder = class {
     }
     const contextStart = Date.now();
     const page = await context.newPage();
+    const pl = {
+      waitUntil: scene.waitUntil ?? this.config.record.waitUntil,
+      timeoutMs: this.config.record.navigationTimeoutMs,
+      warn: (msg) => this.log(`\u26A0\uFE0F  ${msg}`)
+    };
+    page.setDefaultNavigationTimeout(pl.timeoutMs);
     try {
-      await page.goto(scene.site, { waitUntil: "networkidle" });
+      await loadPage(
+        page,
+        (waitUntil) => page.goto(scene.site, { waitUntil }),
+        pl,
+        "Opening the site"
+      );
       await page.evaluate(() => window.scrollTo(0, 0));
       await page.waitForTimeout(400);
       const t0 = Date.now();
@@ -23752,12 +23780,12 @@ var PlaywrightRecorder = class {
             beat.focusLabel
           );
         }
-        for (const step of beat.do) await runStep(page, step, fx);
+        for (const step of beat.do) await runStep(page, step, fx, pl);
         const remaining = targetEnd - (Date.now() - t0);
         if (remaining > 0) await page.waitForTimeout(remaining);
         else if (remaining < -150) {
-          console.warn(
-            `[narrate] beat "${beat.id}" visuals overran narration by ${-remaining}ms; shorten its steps or lengthen the narration.`
+          pl.warn(
+            `beat "${beat.id}" visuals overran narration by ${-remaining}ms; shorten its steps or lengthen the narration.`
           );
         }
         if (fx.highlight) await clearHighlight(page);
@@ -23776,8 +23804,18 @@ var COLOR_SCHEME = {
   dark: "dark",
   system: "no-preference"
 };
-async function settle2(page) {
-  await page.waitForLoadState("networkidle").catch(() => {
+var idleWarning = (what, pl) => `${what}: the network never went idle within ${pl.timeoutMs}ms (does the page poll?); continuing. Set record.waitUntil (or the scene's waitUntil) to "load" to skip this wait.`;
+async function loadPage(page, go, pl, what) {
+  if (pl.waitUntil !== "networkidle") {
+    await go(pl.waitUntil);
+    return;
+  }
+  await go("load");
+  await page.waitForLoadState("networkidle", { timeout: pl.timeoutMs }).catch(() => pl.warn(idleWarning(what, pl)));
+}
+async function settle2(page, pl, what) {
+  await page.waitForLoadState(pl.waitUntil, { timeout: pl.timeoutMs }).catch(() => {
+    if (pl.waitUntil === "networkidle") pl.warn(idleWarning(what, pl));
   });
 }
 var POINT_MS = 450;
@@ -23803,7 +23841,7 @@ async function clearHighlight(page, selector) {
   await page.evaluate((sel) => window.__narrate?.unhighlight(sel), selector ?? null).catch(() => {
   });
 }
-async function runStep(page, step, fx) {
+async function runStep(page, step, fx, pl) {
   switch (step.action) {
     // --- timing ---
     case "wait":
@@ -23817,33 +23855,38 @@ async function runStep(page, step, fx) {
       return;
     // --- navigation ---
     case "navigate":
-      await page.goto(step.url, { waitUntil: "networkidle" });
+      await loadPage(
+        page,
+        (waitUntil) => page.goto(step.url, { waitUntil }),
+        pl,
+        `navigate ${step.url}`
+      );
       return;
     case "back":
       await page.goBack().catch(() => {
       });
-      await settle2(page);
+      await settle2(page, pl, "back");
       return;
     case "forward":
       await page.goForward().catch(() => {
       });
-      await settle2(page);
+      await settle2(page, pl, "forward");
       return;
     case "reload":
-      await page.reload({ waitUntil: "networkidle" });
+      await loadPage(page, (waitUntil) => page.reload({ waitUntil }), pl, "reload");
       return;
     // --- mouse ---
     case "click":
       if (fx.cursor) await pointTo(page, step.selector);
       await page.click(step.selector);
       if (fx.cursor) await ripple(page, step.selector);
-      await settle2(page);
+      await settle2(page, pl, `click ${step.selector}`);
       return;
     case "dblclick":
       if (fx.cursor) await pointTo(page, step.selector);
       await page.dblclick(step.selector);
       if (fx.cursor) await ripple(page, step.selector);
-      await settle2(page);
+      await settle2(page, pl, `dblclick ${step.selector}`);
       return;
     case "hover":
       if (fx.cursor) await pointTo(page, step.selector);
@@ -23868,7 +23911,7 @@ async function runStep(page, step, fx) {
     case "press":
       if (step.selector) await page.press(step.selector, step.key);
       else await page.keyboard.press(step.key);
-      await settle2(page);
+      await settle2(page, pl, `press ${step.key}`);
       return;
     case "selectOption":
       if (fx.cursor) await pointTo(page, step.selector);
@@ -24335,7 +24378,7 @@ async function render(scene, config2, opts) {
     log(`  ${beat.id}: ${durations[beat.id].toFixed(2)}s`);
   }
   log("Recording walkthrough (headless)\u2026");
-  const recorder = new PlaywrightRecorder(outDir, config2);
+  const recorder = new PlaywrightRecorder(outDir, config2, log);
   let auth = scene.auth;
   if (auth?.storageState) {
     const statePath = resolve3(opts.cwd, auth.storageState);

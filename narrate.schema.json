@@ -153,6 +153,30 @@
         }
       },
       "additionalProperties": false
+    },
+    "record": {
+      "default": {
+        "waitUntil": "networkidle",
+        "navigationTimeoutMs": 30000
+      },
+      "type": "object",
+      "properties": {
+        "waitUntil": {
+          "default": "networkidle",
+          "type": "string",
+          "enum": [
+            "load",
+            "domcontentloaded",
+            "networkidle"
+          ]
+        },
+        "navigationTimeoutMs": {
+          "default": 30000,
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false

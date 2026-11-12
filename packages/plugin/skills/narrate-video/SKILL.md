@@ -189,6 +189,7 @@ Playwright + Chromium; normally automatic). TTS provider/key onboarding lives in
   "site": "http://localhost:3000",
   "viewport": { "width": 1440, "height": 900 },
   "theme": "dark",                         // optional: light | dark | system
+  "waitUntil": "load",                     // optional: load | domcontentloaded | networkidle (default)
   "auth": { "storageState": ".narrate/auth.json" },  // optional: start signed in (see Authenticated walkthroughs)
   "beats": [
     {
@@ -282,6 +283,11 @@ Two roles — keep them separate so it doesn't look random:
   you run it with a filtered environment, pass those through. A missing-key
   error lists every settings file and variable it checked. Full table:
   `docs/configuration.md#environment-variables` in the narrate repo.
+- **Page loads:** each navigation (and the settle after clicks) waits for
+  `networkidle` by default. Apps that poll (dashboards, dev servers with HMR,
+  analytics) never go idle: the render still works but logs a "never went idle"
+  warning and loses up to `record.navigationTimeoutMs` (30s) per load. If you see
+  that warning, or the app polls, set `"waitUntil": "load"` on the scene.
 - **Theme:** the optional scene-level `theme` emulates the browser's
   `prefers-color-scheme` (the standard OS/browser color-scheme signal), so it
   works for any site that honors that media query. Apps with a *manual* toggle
