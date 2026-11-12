@@ -1,3 +1,4 @@
+import { stripVoiceTags } from "./tts/tags.js";
 import type { Beat, Durations } from "./types.js";
 
 /** Format seconds as a WebVTT timestamp: `HH:MM:SS.mmm`. */
@@ -14,7 +15,8 @@ function timestamp(seconds: number): string {
  * Build a WebVTT caption track from the scene's beats and their *measured*
  * narration durations. Cues run back-to-back (each beat is held for exactly its
  * narration length), offset by `leadInSec` so they line up with the muxed audio,
- * which starts after the recorder's lead-in. The beat id becomes the cue id.
+ * which starts after the recorder's lead-in. The beat id becomes the cue id;
+ * voice tags such as `[excited]` are left out of the caption text.
  */
 export function buildVtt(beats: Beat[], durations: Durations, leadInSec = 0): string {
   const lines = ["WEBVTT", ""];
@@ -23,7 +25,7 @@ export function buildVtt(beats: Beat[], durations: Durations, leadInSec = 0): st
     const start = t;
     const end = t + (durations[beat.id] ?? 0);
     t = end;
-    lines.push(beat.id, `${timestamp(start)} --> ${timestamp(end)}`, beat.say.trim(), "");
+    lines.push(beat.id, `${timestamp(start)} --> ${timestamp(end)}`, stripVoiceTags(beat.say), "");
   }
   return `${lines.join("\n")}\n`;
 }

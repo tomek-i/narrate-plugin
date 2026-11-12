@@ -15,6 +15,11 @@ export class ElevenLabsProvider implements TTSProvider {
     private model = DEFAULT_MODEL,
   ) {}
 
+  /** Only the v3 models act on audio tags; older ones would read them out. */
+  get voiceTags(): boolean {
+    return this.model.startsWith("eleven_v3");
+  }
+
   async synth(text: string, opts?: SynthOptions): Promise<SynthResult> {
     const voiceId = opts?.voice ?? this.voice;
     // Encoded: the voice can come from a scene, and must not change the endpoint.

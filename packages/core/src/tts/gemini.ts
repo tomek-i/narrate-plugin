@@ -6,6 +6,7 @@ const DEFAULT_MODEL = "gemini-2.5-flash-preview-tts";
 /** Google Gemini text-to-speech (returns 24kHz mono PCM, wrapped to WAV). */
 export class GeminiProvider implements TTSProvider {
   readonly name = "gemini";
+  readonly voiceTags = true;
 
   constructor(
     private key: string,

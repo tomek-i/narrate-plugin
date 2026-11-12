@@ -15,6 +15,7 @@ import { originOf } from "./record/origin-guard.js";
 import { PlaywrightRecorder } from "./record/playwright.js";
 import { hasPlaywright, installChromium, installPlaywrightPackage } from "./setup.js";
 import { makeProvider } from "./tts/index.js";
+import { stripVoiceTags } from "./tts/tags.js";
 import type { Config, Durations, Scene } from "./types.js";
 import { formatProblems, sceneProblems } from "./validate.js";
 import { buildVtt } from "./vtt.js";
@@ -247,7 +248,8 @@ export async function renderScene(
     const durations: Durations = {};
     const wavs: string[] = [];
     for (const [i, beat] of scene.beats.entries()) {
-      const res = await provider.synth(beat.say, { voice: beat.voice });
+      const text = provider.voiceTags ? beat.say : stripVoiceTags(beat.say);
+      const res = await provider.synth(text, { voice: beat.voice });
       // Normalize the provider bytes straight to a single 48kHz-stereo WAV (piped
       // through ffmpeg, so no raw intermediate file is written) for clean concat.
       // Named by position, not id: an id is free text and mustn't become a path.
