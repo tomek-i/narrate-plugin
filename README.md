@@ -36,6 +36,14 @@ pnpm narrate render --scene packages/plugin/examples/demo.scene.json --provider 
 # → out/narrate-demo.mp4   (mock = silent dry run, no API key needed)
 ```
 
+**From scripts, with the plugin installed:** the plugin's CLI lives in a
+versioned cache folder, so narrate keeps launchers at a fixed path that always
+run the current version (see [usage.md](./docs/usage.md#running-the-cli-outside-claude-code)):
+
+```bash
+node ~/.narrate/bin/narrate.mjs render --scene scene.json   # or add ~/.narrate/bin to PATH and run `narrate`
+```
+
 ## Requirements
 
 **ffmpeg + ffprobe** on your PATH is the only manual dependency — Playwright +

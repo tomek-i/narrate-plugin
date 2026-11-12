@@ -109,7 +109,10 @@ settings + keys normally come from the global `~/.narrate/settings.json`),
 (`--json` prints one result object on stdout — `ok`, absolute `video`/`captions`/`log`
 paths, `audio` check, or on failure `stage` + `error`; see docs/usage.md), `auth <login-url> [--out <file>]` (log in once and
 save a session for authenticated scenes — see below), and `setup` (force-install
-Playwright + Chromium; normally automatic). TTS provider/key onboarding lives in the
+Playwright + Chromium; normally automatic; also writes the stable launchers in
+`~/.narrate/bin`). Outside Claude Code (scripts, CI on a machine with the plugin),
+call `node ~/.narrate/bin/narrate.mjs <command>`, never the versioned cache path:
+the launcher runs the installed plugin version. TTS provider/key onboarding lives in the
 **`/narrate-setup`** skill.
 
 ## Prerequisites

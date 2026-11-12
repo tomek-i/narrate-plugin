@@ -3041,8 +3041,8 @@ var require_commander = __commonJS({
 });
 
 // src/cli.ts
-import { mkdirSync as mkdirSync4, writeFileSync as writeFileSync5 } from "fs";
-import { dirname as dirname6, resolve as resolve5 } from "path";
+import { mkdirSync as mkdirSync5, writeFileSync as writeFileSync6 } from "fs";
+import { dirname as dirname7, join as join7, resolve as resolve5 } from "path";
 
 // ../../node_modules/.pnpm/commander@12.1.0/node_modules/commander/esm.mjs
 var import_index = __toESM(require_commander(), 1);
@@ -24312,9 +24312,141 @@ async function captureAuth(opts) {
   return out;
 }
 
+// src/launcher.ts
+import {
+  chmodSync,
+  existsSync as existsSync4,
+  mkdirSync as mkdirSync3,
+  readFileSync as readFileSync5,
+  renameSync,
+  rmSync as rmSync2,
+  writeFileSync as writeFileSync3
+} from "fs";
+import { dirname as dirname5, join as join4 } from "path";
+import { fileURLToPath as fileURLToPath2 } from "url";
+function launcherDir() {
+  return join4(dirname5(globalSettingsPath()), "bin");
+}
+function runningBundle() {
+  const self = fileURLToPath2(import.meta.url);
+  return self.endsWith(".mjs") || self.endsWith(".js") ? self : null;
+}
+function isInstalledPlugin(bundle) {
+  return /[\\/]plugins[\\/]cache[\\/]/.test(bundle);
+}
+function compareVersions(a, b) {
+  const pa = a.split(/[.-]/).map((n) => Number.parseInt(n, 10) || 0);
+  const pb = b.split(/[.-]/).map((n) => Number.parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pa[i] ?? 0) - (pb[i] ?? 0);
+    if (d) return Math.sign(d);
+  }
+  return 0;
+}
+function shQuote(s) {
+  return `'${s.replaceAll("'", "'\\''")}'`;
+}
+function launcherFiles(target, version2, dir) {
+  return {
+    "narrate.mjs": `#!/usr/bin/env node
+// Written by narrate ${version2}: runs the narrate CLI that Claude Code has
+// installed, so this path stays the same across plugin updates. Don't edit;
+// the plugin rewrites it.
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+
+const fallback = ${JSON.stringify(target)};
+
+/** The installed plugin's bundle, per Claude Code's own install record. */
+function installed() {
+  try {
+    const home = process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
+    const record = JSON.parse(readFileSync(join(home, "plugins", "installed_plugins.json"), "utf8"));
+    const installs = Object.entries(record.plugins ?? {})
+      .filter(([key, list]) => key.startsWith("narrate@") && Array.isArray(list))
+      .flatMap(([, list]) => list)
+      .sort((a, b) => (a?.scope === "user" ? 0 : 1) - (b?.scope === "user" ? 0 : 1));
+    for (const install of installs) {
+      if (typeof install?.installPath !== "string") continue;
+      const bundle = join(install.installPath, "bin", "narrate.mjs");
+      if (existsSync(bundle)) return bundle;
+    }
+  } catch {
+    // No readable record: use the bundle this launcher was written for.
+  }
+  return null;
+}
+
+const target = installed() ?? fallback;
+if (!existsSync(target)) {
+  console.error(
+    \`narrate: \${target} no longer exists (the plugin was updated or removed). Run any narrate command or skill from Claude Code once to update this launcher.\`,
+  );
+  process.exit(1);
+}
+await import(pathToFileURL(target).href);
+`,
+    // The launcher folder is written in, so a symlink to this script still works.
+    narrate: `#!/bin/sh
+exec node ${shQuote(join4(dir, "narrate.mjs"))} "$@"
+`,
+    "narrate.cmd": `@echo off\r
+node "%~dp0narrate.mjs" %*\r
+`
+  };
+}
+function writeAtomic(file2, content) {
+  const tmp = `${file2}.${process.pid}.tmp`;
+  try {
+    writeFileSync3(tmp, content);
+    renameSync(tmp, file2);
+  } catch {
+    rmSync2(tmp, { force: true });
+    writeFileSync3(file2, content);
+  }
+}
+function writeLaunchers(target, version2, dir = launcherDir()) {
+  let changed = false;
+  for (const [name, content] of Object.entries(launcherFiles(target, version2, dir))) {
+    const file2 = join4(dir, name);
+    if (existsSync4(file2) && readFileSync5(file2, "utf8") === content) continue;
+    mkdirSync3(dir, { recursive: true });
+    writeAtomic(file2, content);
+    if (name !== "narrate.cmd") chmodSync(file2, 493);
+    changed = true;
+  }
+  return changed;
+}
+function launcherTarget(dir = launcherDir()) {
+  try {
+    const text = readFileSync5(join4(dir, "narrate.mjs"), "utf8");
+    const version2 = /Written by narrate (\S+):/.exec(text)?.[1];
+    const target = /^const fallback = (".*");$/m.exec(text)?.[1];
+    return version2 && target ? { target: JSON.parse(target), version: version2 } : null;
+  } catch {
+    return null;
+  }
+}
+function shouldRefresh(version2, dir = launcherDir()) {
+  const current = launcherTarget(dir);
+  if (!current || !existsSync4(current.target)) return true;
+  return compareVersions(version2, current.version) >= 0;
+}
+function refreshLaunchers(dir = launcherDir()) {
+  const bundle = runningBundle();
+  if (!bundle || !isInstalledPlugin(bundle)) return;
+  try {
+    const version2 = packageVersion();
+    if (shouldRefresh(version2, dir)) writeLaunchers(bundle, version2, dir);
+  } catch {
+  }
+}
+
 // src/pipeline.ts
-import { copyFileSync, existsSync as existsSync5, mkdirSync as mkdirSync3, rmSync as rmSync3, writeFileSync as writeFileSync4 } from "fs";
-import { dirname as dirname5, join as join5, resolve as resolve4 } from "path";
+import { copyFileSync, existsSync as existsSync6, mkdirSync as mkdirSync4, rmSync as rmSync4, writeFileSync as writeFileSync5 } from "fs";
+import { dirname as dirname6, join as join6, resolve as resolve4 } from "path";
 import { pathToFileURL as pathToFileURL3 } from "url";
 
 // src/tts/elevenlabs.ts
@@ -24430,9 +24562,9 @@ var MockProvider = class {
 
 // src/tts/os.ts
 import { execFileSync as execFileSync4 } from "child_process";
-import { mkdtempSync, readFileSync as readFileSync5, rmSync as rmSync2, writeFileSync as writeFileSync3 } from "fs";
+import { mkdtempSync, readFileSync as readFileSync6, rmSync as rmSync3, writeFileSync as writeFileSync4 } from "fs";
 import { tmpdir } from "os";
-import { join as join4 } from "path";
+import { join as join5 } from "path";
 var OsTtsProvider = class {
   name = "os";
   warned = false;
@@ -24462,18 +24594,18 @@ function run(cmd, args, env) {
   execFileSync4(cmd, args, { stdio: "ignore", ...env ? { env: { ...process.env, ...env } } : {} });
 }
 function scratch() {
-  const dir = mkdtempSync(join4(tmpdir(), "narrate-os-"));
+  const dir = mkdtempSync(join5(tmpdir(), "narrate-os-"));
   return {
     dir,
-    txt: join4(dir, "in.txt"),
-    out: (ext) => join4(dir, `out.${ext}`),
-    clean: () => rmSync2(dir, { recursive: true, force: true })
+    txt: join5(dir, "in.txt"),
+    out: (ext) => join5(dir, `out.${ext}`),
+    clean: () => rmSync3(dir, { recursive: true, force: true })
   };
 }
 function windows(text, voice) {
   const s = scratch();
   const wav = s.out("wav");
-  writeFileSync3(s.txt, text, "utf8");
+  writeFileSync4(s.txt, text, "utf8");
   const ps = [
     "Add-Type -AssemblyName System.Speech;",
     "$t=[IO.File]::ReadAllText($env:NARRATE_TTS_IN,[Text.Encoding]::UTF8);",
@@ -24485,7 +24617,7 @@ function windows(text, voice) {
   const args = ["-NoProfile", "-NonInteractive", "-Command", ps];
   const sysRoot = process.env.SystemRoot ?? process.env.windir ?? "C:\\Windows";
   const candidates = [
-    join4(sysRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
+    join5(sysRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
     "powershell",
     "pwsh"
   ];
@@ -24501,7 +24633,7 @@ function windows(text, voice) {
     }
   }
   if (!ran) throw lastErr ?? new Error("no PowerShell found");
-  const audio = readFileSync5(wav);
+  const audio = readFileSync6(wav);
   s.clean();
   if (audio.length <= 44) throw new Error("PowerShell TTS produced an empty WAV");
   return { audio, ext: "wav" };
@@ -24509,18 +24641,18 @@ function windows(text, voice) {
 function macos(text, voice) {
   const s = scratch();
   const aiff = s.out("aiff");
-  writeFileSync3(s.txt, text, "utf8");
+  writeFileSync4(s.txt, text, "utf8");
   const args = ["-f", s.txt, "-o", aiff];
   if (voice) args.unshift("-v", voice);
   run("say", args);
-  const audio = readFileSync5(aiff);
+  const audio = readFileSync6(aiff);
   s.clean();
   return { audio, ext: "aiff" };
 }
 function linux(text, voice) {
   const s = scratch();
   const wav = s.out("wav");
-  writeFileSync3(s.txt, text, "utf8");
+  writeFileSync4(s.txt, text, "utf8");
   const bin = ["espeak-ng", "espeak"].find((b) => {
     try {
       run(b, ["--version"]);
@@ -24533,7 +24665,7 @@ function linux(text, voice) {
   const args = ["-w", wav, "-f", s.txt];
   if (voice) args.push("-v", voice);
   run(bin, args);
-  const audio = readFileSync5(wav);
+  const audio = readFileSync6(wav);
   s.clean();
   return { audio, ext: "wav" };
 }
@@ -24563,7 +24695,7 @@ function makeProvider(config2, settingsFiles) {
 }
 
 // src/validate.ts
-import { existsSync as existsSync4, readFileSync as readFileSync6 } from "fs";
+import { existsSync as existsSync5, readFileSync as readFileSync7 } from "fs";
 import { resolve as resolve3 } from "path";
 import { pathToFileURL as pathToFileURL2 } from "url";
 function safeOrigin(url2) {
@@ -24682,10 +24814,10 @@ function validateSceneFile(cwd, file2, opts = {}) {
     problems: problems2
   });
   const p = resolve3(cwd, file2);
-  if (!existsSync4(p)) return result([{ path: "", message: `scene file not found: ${p}` }]);
+  if (!existsSync5(p)) return result([{ path: "", message: `scene file not found: ${p}` }]);
   let raw;
   try {
-    raw = JSON.parse(readFileSync6(p, "utf8"));
+    raw = JSON.parse(readFileSync7(p, "utf8"));
   } catch (err) {
     return result([
       { path: "", message: `not valid JSON: ${err instanceof Error ? err.message : err}` }
@@ -24705,7 +24837,7 @@ function validateSceneFile(cwd, file2, opts = {}) {
   }
   problems.push(...sceneProblems(scene, opts));
   const state = scene.auth?.storageState;
-  if (state && !opts.untrusted && !scene.untrusted && !existsSync4(resolve3(cwd, state))) {
+  if (state && !opts.untrusted && !scene.untrusted && !existsSync5(resolve3(cwd, state))) {
     problems.push({
       path: "auth.storageState",
       message: `saved session not found: ${resolve3(cwd, state)} (capture it with \`narrate auth <login-url> --out ${state}\`)`
@@ -24775,11 +24907,11 @@ async function renderScene(scene, config2, opts) {
     opts.onLog?.(msg);
   };
   const outDir = resolve4(opts.cwd, config2.output.dir);
-  const logPath = opts.logFile ? resolve4(opts.cwd, opts.logFile) : join5(outDir, "narrate.log");
+  const logPath = opts.logFile ? resolve4(opts.cwd, opts.logFile) : join6(outDir, "narrate.log");
   const writeLog = () => {
     try {
-      mkdirSync3(dirname5(logPath), { recursive: true });
-      writeFileSync4(logPath, `${logLines.join("\n")}
+      mkdirSync4(dirname6(logPath), { recursive: true });
+      writeFileSync5(logPath, `${logLines.join("\n")}
 `);
       opts.onLog?.(`Diagnostic log: ${logPath}`);
       return logPath;
@@ -24833,7 +24965,7 @@ ${formatProblems(problems)}`
     let auth = statePathIn ? { storageState: statePathIn } : void 0;
     if (auth?.storageState) {
       const statePath = resolve4(opts.cwd, auth.storageState);
-      if (!existsSync5(statePath)) {
+      if (!existsSync6(statePath)) {
         throw new Error(
           `Auth storage state not found: ${statePath}. Capture it once with \`narrate auth <login-url> --out ${auth.storageState}\` (a browser opens; log in, then close it), then re-run. (The file holds session tokens \u2014 keep it gitignored.)`
         );
@@ -24851,8 +24983,8 @@ ${formatProblems(problems)}`
       installChromium(log);
     }
     stage = "tts";
-    const audioDir = join5(outDir, "audio");
-    mkdirSync3(audioDir, { recursive: true });
+    const audioDir = join6(outDir, "audio");
+    mkdirSync4(audioDir, { recursive: true });
     const requireAudio = Boolean(opts.requireAudio) && config2.tts.provider !== "mock";
     const activeVoice = config2.tts.provider === "gemini" ? config2.tts.gemini.voice : config2.tts.provider === "elevenlabs" ? config2.tts.elevenlabs.voice : provider.name;
     log(`Generating narration with "${provider.name}" (voice: ${activeVoice})\u2026`);
@@ -24860,7 +24992,7 @@ ${formatProblems(problems)}`
     const wavs = [];
     for (const [i, beat] of scene.beats.entries()) {
       const res = await provider.synth(beat.say, { voice: beat.voice });
-      const wavPath = join5(audioDir, `beat-${String(i + 1).padStart(3, "0")}.wav`);
+      const wavPath = join6(audioDir, `beat-${String(i + 1).padStart(3, "0")}.wav`);
       normalizeToWav(res.audio, wavPath);
       const beatVolume = requireAudio ? meanVolume(wavPath) : null;
       if (requireAudio && audioProblem(true, beatVolume)) {
@@ -24882,9 +25014,9 @@ ${formatProblems(problems)}`
       // Untrusted scenes always record with the guard on, and can't widen it.
       allowedOrigins: untrusted ? opts.allowedOrigins ?? [] : opts.allowedOrigins ?? scene.allowedOrigins
     };
-    const finalOut = join5(outDir, `${scene.name}.${config2.output.format}`);
+    const finalOut = join6(outDir, `${scene.name}.${config2.output.format}`);
     if (sceneToRecord.allowedOrigins) {
-      rmSync3(finalOut, { force: true });
+      rmSync4(finalOut, { force: true });
       log(
         `Same-origin guard: on (allowed: ${[sceneToRecord.site, ...sceneToRecord.allowedOrigins].map(originOf).join(", ")})`
       );
@@ -24894,8 +25026,8 @@ ${formatProblems(problems)}`
     log(`Recorded video: ${videoPath} (lead-in ${(leadInMs / 1e3).toFixed(3)}s)`);
     stage = "mux";
     log("Muxing narration onto video\u2026");
-    const narration = join5(outDir, "narration.wav");
-    concatWavs(wavs, narration, join5(outDir, "audio.txt"));
+    const narration = join6(outDir, "narration.wav");
+    concatWavs(wavs, narration, join6(outDir, "audio.txt"));
     log(`Combined narration: ${narration} (mean volume ${meanVolume(narration) ?? "n/a"})`);
     const mux = muxNarration({
       video: videoPath,
@@ -24918,20 +25050,20 @@ ${mux.stderr.trim().split("\n").slice(-12).join("\n")}`);
     const silent2 = problem !== null;
     if (problem) {
       if (requireAudio) {
-        rmSync3(finalOut, { force: true });
+        rmSync4(finalOut, { force: true });
         throw new Error(`${problem}; the video was removed.`);
       }
       log(`\u26A0\uFE0F  Warning: ${problem}.`);
     }
     let captions = null;
     if (config2.output.vtt) {
-      captions = join5(outDir, `${scene.name}.vtt`);
-      writeFileSync4(captions, buildVtt(scene.beats, durations, leadInMs / 1e3));
+      captions = join6(outDir, `${scene.name}.vtt`);
+      writeFileSync5(captions, buildVtt(scene.beats, durations, leadInMs / 1e3));
       log(`Captions: ${captions}`);
     }
     if (config2.output.keepScene && opts.scenePath) {
       const src = resolve4(opts.cwd, opts.scenePath);
-      const dest = join5(outDir, `${scene.name}.scene.json`);
+      const dest = join6(outDir, `${scene.name}.scene.json`);
       if (src === dest) {
         log(`Scene retained: ${dest} (already in out dir)`);
       } else {
@@ -25044,8 +25176,8 @@ function inputErrorLog(logFile, err) {
   if (!logFile) return null;
   const path = resolve5(process.cwd(), logFile);
   try {
-    mkdirSync4(dirname6(path), { recursive: true });
-    writeFileSync5(path, `\u274C ${err instanceof Error ? err.message : String(err)}
+    mkdirSync5(dirname7(path), { recursive: true });
+    writeFileSync6(path, `\u274C ${err instanceof Error ? err.message : String(err)}
 `);
     return path;
   } catch (writeErr) {
@@ -25158,9 +25290,29 @@ program2.command("check").description("Validate the environment (ffmpeg, config,
   for (const line of result.lines) console.log(line);
   if (!result.ok) process.exit(1);
 });
-program2.command("setup").description("Install Playwright + the Chromium browser (run once after install).").action(async () => {
+program2.command("setup").description(
+  "Install Playwright, and write the stable launchers in ~/.narrate/bin that run this version."
+).action(async () => {
   await setup((m) => console.log(m));
+  const bundle = runningBundle();
+  if (!bundle) {
+    console.log("Running from source: no launchers written (they need the built CLI).");
+    return;
+  }
+  const dir = launcherDir();
+  try {
+    writeLaunchers(bundle, packageVersion());
+  } catch (err) {
+    console.error(
+      `\u26A0\uFE0F  Could not write the launchers in ${dir}: ${err instanceof Error ? err.message : err}`
+    );
+    return;
+  }
+  console.log(`Launchers in ${dir} now run ${bundle}:`);
+  console.log(`  node "${join7(dir, "narrate.mjs")}" <command>`);
+  console.log(`  Add ${dir} to your PATH to run plain \`narrate <command>\`.`);
 });
+refreshLaunchers();
 program2.parseAsync().catch((err) => {
   console.error(`
 \u274C ${err instanceof Error ? err.message : err}`);
