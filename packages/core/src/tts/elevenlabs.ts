@@ -17,7 +17,9 @@ export class ElevenLabsProvider implements TTSProvider {
 
   async synth(text: string, opts?: SynthOptions): Promise<SynthResult> {
     const voiceId = opts?.voice ?? this.voice;
-    const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+    // Encoded: the voice can come from a scene, and must not change the endpoint.
+    const url = `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}`;
+    const res = await fetch(url, {
       method: "POST",
       headers: { "xi-api-key": this.key, "Content-Type": "application/json" },
       body: JSON.stringify({ text, model_id: this.model }),

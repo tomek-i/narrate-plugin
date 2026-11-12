@@ -33,6 +33,12 @@ export interface RenderOptions {
   untrusted?: boolean;
   /** Expand `${NAME}` in `fill`/`type` text (default true; `--no-env` sets false). */
   expandEnv?: boolean;
+  /**
+   * Origins the caller allows besides the site's own (`--allow-origin`); turns on
+   * the same-origin guard. In untrusted mode these are the only extra origins:
+   * the scene's own `allowedOrigins` is ignored.
+   */
+  allowedOrigins?: string[];
   /** A storage-state file chosen by the caller; overrides the scene's `auth`. */
   storageState?: string;
   /** Settings files consulted for this run; named in a missing-key error. */
@@ -63,7 +69,10 @@ export async function render(scene: Scene, config: Config, opts: RenderOptions):
   // Safe mode: reject dangerous steps before spending anything on TTS or recording.
   const untrusted = Boolean(opts.untrusted || scene.untrusted);
   if (untrusted) {
-    const problems = untrustedProblems({ ...scene, site: resolveSite(scene.site, opts.cwd) });
+    const problems = untrustedProblems(
+      { ...scene, site: resolveSite(scene.site, opts.cwd) },
+      { allowedOrigins: opts.allowedOrigins },
+    );
     if (problems.length) {
       throw new Error(`Scene rejected (untrusted mode):\n${formatProblems(problems)}`);
     }
@@ -95,11 +104,12 @@ export async function render(scene: Scene, config: Config, opts: RenderOptions):
   log(`Generating narration with "${provider.name}" (voice: ${activeVoice})…`);
   const durations: Durations = {};
   const wavs: string[] = [];
-  for (const beat of scene.beats) {
+  for (const [i, beat] of scene.beats.entries()) {
     const res = await provider.synth(beat.say, { voice: beat.voice });
     // Normalize the provider bytes straight to a single 48kHz-stereo WAV (piped
     // through ffmpeg, so no raw intermediate file is written) for clean concat.
-    const wavPath = join(audioDir, `${beat.id}.wav`);
+    // Named by position, not id: an id is free text and mustn't become a path.
+    const wavPath = join(audioDir, `beat-${String(i + 1).padStart(3, "0")}.wav`);
     normalizeToWav(res.audio, wavPath);
     durations[beat.id] = probeDuration(wavPath);
     wavs.push(wavPath);
@@ -112,6 +122,11 @@ export async function render(scene: Scene, config: Config, opts: RenderOptions):
   // Resolve an auth storage-state path (if any) up front so the recorder gets an
   // absolute path and a missing file fails here with a clear, actionable message.
   // In untrusted mode the scene can't pick which saved session to load.
+  if (untrusted && scene.allowedOrigins?.length) {
+    log(
+      `⚠️  Untrusted mode: ignoring the scene's allowedOrigins (${scene.allowedOrigins.join(", ")}); pass --allow-origin to allow more origins.`,
+    );
+  }
   if (untrusted && scene.auth?.storageState && !opts.storageState) {
     log(
       `⚠️  Untrusted mode: ignoring the scene's auth.storageState (${scene.auth.storageState}); pass --storage-state to start signed in.`,
@@ -133,8 +148,10 @@ export async function render(scene: Scene, config: Config, opts: RenderOptions):
     ...scene,
     site: resolveSite(scene.site, opts.cwd),
     auth,
-    // Untrusted scenes always record with the same-origin guard on.
-    allowedOrigins: scene.allowedOrigins ?? (untrusted ? [] : undefined),
+    // Untrusted scenes always record with the guard on, and can't widen it.
+    allowedOrigins: untrusted
+      ? (opts.allowedOrigins ?? [])
+      : (opts.allowedOrigins ?? scene.allowedOrigins),
   };
   if (sceneToRecord.allowedOrigins) {
     // If the guard fails, no video may be left at the output path — not even an

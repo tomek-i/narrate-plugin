@@ -307,16 +307,52 @@ test("untrusted mode rejects eval, uploadFile and off-origin navigate, naming be
   );
   assert.match(problems[0].message, /beat "intro" step 1: eval/);
   assert.match(problems[2].message, /https:\/\/evil\.example\//);
-  // allowedOrigins widens what navigate may reach.
+  // The caller's allowed origins widen what navigate may reach; the scene's own don't.
+  const toDocs = unsafeScene([{ action: "navigate", url: "https://docs.example/a" }], {
+    allowedOrigins: ["https://docs.example"],
+  });
   assert.deepEqual(
-    untrustedProblems(
-      unsafeScene([{ action: "navigate", url: "https://docs.example/a" }], {
-        allowedOrigins: ["https://docs.example"],
-      }),
-    ),
-    [],
+    untrustedProblems(toDocs).map((p) => p.path),
+    ["beats[0].do[0].url"],
+  );
+  assert.deepEqual(untrustedProblems(toDocs, { allowedOrigins: ["https://docs.example"] }), []);
+});
+
+test("untrusted mode requires an http(s) site, rejects file: navigates and unsafe names", () => {
+  const scene = SceneSchema.parse({
+    name: "../../Videos/important",
+    site: "file:///C:/Users/me/.ssh/id_rsa",
+    beats: [
+      { id: "../../x", say: "x", do: [{ action: "navigate", url: "file:///etc/passwd" }] },
+      { id: "ok_id-1.2", say: "y" },
+    ],
+  });
+  assert.deepEqual(
+    untrustedProblems(scene).map((p) => p.path),
+    ["site", "name", "beats[0].id", "beats[0].do[0].url"],
   );
 });
+
+test(
+  "the Windows OS voice treats the voice name as data, never as PowerShell code",
+  {
+    skip: process.platform !== "win32" && "Windows only",
+  },
+  async () => {
+    const dir = mkdtempSync(join(tmpdir(), "narrate-voice-"));
+    try {
+      const marker = join(dir, "pwned.txt");
+      // PowerShell treats curly quotes as single quotes, so this closes the old
+      // quoted string; the path is curly-quoted too, which ASCII-quote escaping misses.
+      const voice = `x’);Set-Content -Path ‘${marker}’ -Value 1;#`;
+      const res = await new OsTtsProvider().synth("Hello.", { voice });
+      assert.ok(res.audio.length > 0);
+      assert.ok(!existsSync(marker), "the voice name ran as code");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  },
+);
 
 test("render in untrusted mode rejects a scene before any work, from the flag or the scene", async () => {
   const root = mkdtempSync(join(tmpdir(), "narrate-untrusted-"));

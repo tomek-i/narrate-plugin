@@ -16,21 +16,50 @@ function safeOrigin(url: string): string | null {
   }
 }
 
+/** Names that are safe as a single file name: no separators, no `..`, no control characters. */
+const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
 /**
- * The rules for an untrusted (generated) scene — `render --untrusted`. Steps that
- * can run code, read local files or leave the site are rejected before anything
- * is synthesized or recorded:
+ * The rules for an untrusted (generated) scene — `render --untrusted`. Anything
+ * that could run code, read local files, write outside the output folder or
+ * leave the site is rejected before anything is synthesized or recorded:
+ * - `site` must be an http(s) URL (a `file:` site can show any local file);
+ * - `name` and beat `id`s must be plain names (they end up in file names and captions);
  * - `eval` runs arbitrary JavaScript in the page;
  * - `uploadFile` reads any local file into the page;
- * - `navigate` to an origin other than `site` (or `allowedOrigins`).
- * `site` must already be resolved to an absolute URL (as `loadScene` does).
+ * - `navigate` to an origin other than `site`'s (or the caller's `allowedOrigins`).
+ * The scene's own `allowedOrigins` don't count: a scene can't widen its own
+ * allowlist. `site` must already be resolved to an absolute URL (as `loadScene` does).
  */
-export function untrustedProblems(scene: Scene): Problem[] {
+export function untrustedProblems(
+  scene: Scene,
+  opts: { allowedOrigins?: string[] } = {},
+): Problem[] {
   const problems: Problem[] = [];
+  if (!/^https?:\/\//i.test(scene.site)) {
+    problems.push({
+      path: "site",
+      message: `an untrusted scene must use an http(s) site, not ${scene.site}`,
+    });
+  }
+  if (!SAFE_NAME.test(scene.name)) {
+    problems.push({
+      path: "name",
+      message: "must be a plain file name (letters, digits, . _ -) in an untrusted scene",
+    });
+  }
+  scene.beats.forEach((beat, b) => {
+    if (!SAFE_NAME.test(beat.id)) {
+      problems.push({
+        path: `beats[${b}].id`,
+        message: "must be a plain name (letters, digits, . _ -) in an untrusted scene",
+      });
+    }
+  });
   const allowed = new Set(
-    [scene.site, ...(scene.allowedOrigins ?? [])]
+    [scene.site, ...(opts.allowedOrigins ?? [])]
       .map(safeOrigin)
-      .filter((o): o is string => o !== null),
+      .filter((o): o is string => o !== null && o !== "file://"),
   );
   scene.beats.forEach((beat, b) => {
     beat.do.forEach((step, s) => {

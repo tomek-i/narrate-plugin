@@ -115,9 +115,13 @@ as issue text, render it with `--untrusted` (or set `"untrusted": true` in the
 scene; the flag turns it on either way). Before anything is synthesized or
 recorded, the scene is rejected if it contains:
 
+- a `site` that isn't an `http(s)` URL (a `file:` site can show any local file);
+- a `name` or beat `id` that isn't a plain name (letters, digits, `.`, `_`, `-`),
+  since they end up in file names and captions;
 - an `eval` step (runs arbitrary JavaScript in the page);
 - an `uploadFile` step (reads local files into the page);
-- a `navigate` to an origin other than `site` (or `allowedOrigins`).
+- a `navigate` to an origin other than the site's (or one the caller allowed with
+  `--allow-origin`).
 
 The error lists each problem with its path and beat/step, e.g.
 `beats[1].do[0]: beat "login" step 1: eval runs arbitrary JavaScript; …`.
@@ -129,7 +133,10 @@ Untrusted mode also:
 - ignores the scene's `auth.storageState`, so a scene can't choose which saved
   session to load. Pass `--storage-state <file>` to start signed in;
 - turns on the [same-origin guard](#same-origin-guard), so link clicks and
-  redirects can't take the recording to another site either.
+  redirects can't take the recording to another site either;
+- ignores the scene's own `allowedOrigins`: a scene can't widen its own
+  allowlist. Pass `--allow-origin <url…>` to allow more origins, and `--site <url>`
+  to pin where the recording starts.
 
 If you only need literal text (no other restrictions), use `--no-env`.
 

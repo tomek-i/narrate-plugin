@@ -23205,7 +23205,7 @@ function normalizeToWav(input2, output2) {
   });
 }
 function concatWavs(files, output2, listPath) {
-  writeFileSync(listPath, files.map((f) => `file '${fwd(f)}'`).join("\n"));
+  writeFileSync(listPath, files.map((f) => `file '${fwd(f).replaceAll("'", "'\\''")}'`).join("\n"));
   execFileSync(
     "ffmpeg",
     ["-y", "-f", "concat", "-safe", "0", "-i", listPath, "-c", "copy", output2],
@@ -24310,7 +24310,8 @@ var ElevenLabsProvider = class {
   name = "elevenlabs";
   async synth(text, opts) {
     const voiceId = opts?.voice ?? this.voice;
-    const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+    const url2 = `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}`;
+    const res = await fetch(url2, {
       method: "POST",
       headers: { "xi-api-key": this.key, "Content-Type": "application/json" },
       body: JSON.stringify({ text, model_id: this.model })
@@ -24435,8 +24436,8 @@ var OsTtsProvider = class {
     }
   }
 };
-function run(cmd, args) {
-  execFileSync4(cmd, args, { stdio: "ignore" });
+function run(cmd, args, env) {
+  execFileSync4(cmd, args, { stdio: "ignore", ...env ? { env: { ...process.env, ...env } } : {} });
 }
 function scratch() {
   const dir = mkdtempSync(join4(tmpdir(), "narrate-os-"));
@@ -24451,14 +24452,14 @@ function windows(text, voice) {
   const s = scratch();
   const wav = s.out("wav");
   writeFileSync3(s.txt, text, "utf8");
-  const selectVoice = voice ? `$s.SelectVoice('${voice.replace(/'/g, "''")}');` : "";
   const ps = [
     "Add-Type -AssemblyName System.Speech;",
-    `$t=[IO.File]::ReadAllText('${s.txt}',[Text.Encoding]::UTF8);`,
+    "$t=[IO.File]::ReadAllText($env:NARRATE_TTS_IN,[Text.Encoding]::UTF8);",
     "$s=New-Object System.Speech.Synthesis.SpeechSynthesizer;",
-    selectVoice,
-    `$s.SetOutputToWaveFile('${wav}');$s.Speak($t);$s.Dispose();`
+    voice ? "$s.SelectVoice($env:NARRATE_TTS_VOICE);" : "",
+    "$s.SetOutputToWaveFile($env:NARRATE_TTS_OUT);$s.Speak($t);$s.Dispose();"
   ].join("");
+  const env = { NARRATE_TTS_IN: s.txt, NARRATE_TTS_OUT: wav, NARRATE_TTS_VOICE: voice ?? "" };
   const args = ["-NoProfile", "-NonInteractive", "-Command", ps];
   const sysRoot = process.env.SystemRoot ?? process.env.windir ?? "C:\\Windows";
   const candidates = [
@@ -24470,7 +24471,7 @@ function windows(text, voice) {
   let lastErr;
   for (const exe of candidates) {
     try {
-      run(exe, args);
+      run(exe, args, env);
       ran = true;
       break;
     } catch (err) {
@@ -24547,10 +24548,31 @@ function safeOrigin(url2) {
     return null;
   }
 }
-function untrustedProblems(scene) {
+var SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+function untrustedProblems(scene, opts = {}) {
   const problems = [];
+  if (!/^https?:\/\//i.test(scene.site)) {
+    problems.push({
+      path: "site",
+      message: `an untrusted scene must use an http(s) site, not ${scene.site}`
+    });
+  }
+  if (!SAFE_NAME.test(scene.name)) {
+    problems.push({
+      path: "name",
+      message: "must be a plain file name (letters, digits, . _ -) in an untrusted scene"
+    });
+  }
+  scene.beats.forEach((beat, b) => {
+    if (!SAFE_NAME.test(beat.id)) {
+      problems.push({
+        path: `beats[${b}].id`,
+        message: "must be a plain name (letters, digits, . _ -) in an untrusted scene"
+      });
+    }
+  });
   const allowed = new Set(
-    [scene.site, ...scene.allowedOrigins ?? []].map(safeOrigin).filter((o) => o !== null)
+    [scene.site, ...opts.allowedOrigins ?? []].map(safeOrigin).filter((o) => o !== null && o !== "file://")
   );
   scene.beats.forEach((beat, b) => {
     beat.do.forEach((step, s) => {
@@ -24626,7 +24648,10 @@ async function render(scene, config2, opts) {
   );
   const untrusted = Boolean(opts.untrusted || scene.untrusted);
   if (untrusted) {
-    const problems = untrustedProblems({ ...scene, site: resolveSite(scene.site, opts.cwd) });
+    const problems = untrustedProblems(
+      { ...scene, site: resolveSite(scene.site, opts.cwd) },
+      { allowedOrigins: opts.allowedOrigins }
+    );
     if (problems.length) {
       throw new Error(`Scene rejected (untrusted mode):
 ${formatProblems(problems)}`);
@@ -24648,9 +24673,9 @@ ${formatProblems(problems)}`);
   log(`Generating narration with "${provider.name}" (voice: ${activeVoice})\u2026`);
   const durations = {};
   const wavs = [];
-  for (const beat of scene.beats) {
+  for (const [i, beat] of scene.beats.entries()) {
     const res = await provider.synth(beat.say, { voice: beat.voice });
-    const wavPath = join5(audioDir, `${beat.id}.wav`);
+    const wavPath = join5(audioDir, `beat-${String(i + 1).padStart(3, "0")}.wav`);
     normalizeToWav(res.audio, wavPath);
     durations[beat.id] = probeDuration(wavPath);
     wavs.push(wavPath);
@@ -24658,6 +24683,11 @@ ${formatProblems(problems)}`);
   }
   log("Recording walkthrough (headless)\u2026");
   const recorder = new PlaywrightRecorder(outDir, config2, log);
+  if (untrusted && scene.allowedOrigins?.length) {
+    log(
+      `\u26A0\uFE0F  Untrusted mode: ignoring the scene's allowedOrigins (${scene.allowedOrigins.join(", ")}); pass --allow-origin to allow more origins.`
+    );
+  }
   if (untrusted && scene.auth?.storageState && !opts.storageState) {
     log(
       `\u26A0\uFE0F  Untrusted mode: ignoring the scene's auth.storageState (${scene.auth.storageState}); pass --storage-state to start signed in.`
@@ -24679,8 +24709,8 @@ ${formatProblems(problems)}`);
     ...scene,
     site: resolveSite(scene.site, opts.cwd),
     auth,
-    // Untrusted scenes always record with the same-origin guard on.
-    allowedOrigins: scene.allowedOrigins ?? (untrusted ? [] : void 0)
+    // Untrusted scenes always record with the guard on, and can't widen it.
+    allowedOrigins: untrusted ? opts.allowedOrigins ?? [] : opts.allowedOrigins ?? scene.allowedOrigins
   };
   if (sceneToRecord.allowedOrigins) {
     rmSync3(join5(outDir, `${scene.name}.${config2.output.format}`), { force: true });
@@ -24792,6 +24822,12 @@ program2.command("render").description("TTS \u2192 record \u2192 mux into one na
   "--untrusted",
   "safe mode for generated scenes: reject eval/uploadFile/off-site navigate, type ${NAME} literally, ignore the scene's auth, keep the browser on the site"
 ).option("--no-env", "type ${NAME} in fill/type text literally instead of expanding it").option(
+  "--site <url>",
+  "record this site instead of the scene's (pins where a generated scene starts)"
+).option(
+  "--allow-origin <url...>",
+  "also allow these origins and turn on the same-origin guard (the only way to allow more under --untrusted)"
+).option(
   "--storage-state <file>",
   "load this saved session (overrides the scene's auth.storageState; the only way under --untrusted)"
 ).action(async (o) => {
@@ -24805,6 +24841,16 @@ program2.command("render").description("TTS \u2192 record \u2192 mux into one na
   if (o.out) config2.output.dir = o.out;
   const scene = loadScene(cwd, o.scene);
   if (o.sameOrigin) scene.allowedOrigins = [];
+  if (o.site) scene.site = o.site;
+  for (const origin of o.allowOrigin ?? []) {
+    try {
+      new URL(origin);
+    } catch {
+      throw new Error(
+        `--allow-origin expects a URL such as http://localhost:3000, got "${origin}"`
+      );
+    }
+  }
   const out = await render(scene, config2, {
     cwd,
     scenePath: o.scene,
@@ -24812,6 +24858,7 @@ program2.command("render").description("TTS \u2192 record \u2192 mux into one na
     untrusted: o.untrusted,
     expandEnv: o.env,
     storageState: o.storageState,
+    allowedOrigins: o.allowOrigin,
     onLog: (m) => console.log(m)
   });
   console.log(`

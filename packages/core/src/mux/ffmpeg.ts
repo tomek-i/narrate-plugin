@@ -54,7 +54,8 @@ export function normalizeToWav(input: Buffer, output: string): void {
 
 /** Concatenate same-format WAVs into one track. */
 export function concatWavs(files: string[], output: string, listPath: string): void {
-  writeFileSync(listPath, files.map((f) => `file '${fwd(f)}'`).join("\n"));
+  // concat-demuxer quoting: a ' inside a quoted path is written as '\''.
+  writeFileSync(listPath, files.map((f) => `file '${fwd(f).replaceAll("'", "'\\''")}'`).join("\n"));
   execFileSync(
     "ffmpeg",
     ["-y", "-f", "concat", "-safe", "0", "-i", listPath, "-c", "copy", output],
