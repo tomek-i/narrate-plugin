@@ -16,3 +16,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: googleapis/release-please-action@v5
+        with:
+          # A PR opened with the default GITHUB_TOKEN doesn't get a CI run that
+          # can pass, so the required `check` blocks the release PR. A personal
+          # token makes the PR count as the owner's and CI runs normally. Falls
+          # back to the default token until the secret exists.
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
