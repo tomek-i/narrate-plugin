@@ -35,3 +35,9 @@ docs/*.scene.json
 docs/*.tasks.md
 docs/screenshots/
 docs/ux-review/
+
+# software factory runtime state
+.factory/runs/
+.factory/factory.db*
+.worktrees/
+.factory/drafts/
