@@ -1,6 +1,6 @@
 import { type ChildProcess, execFileSync, spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
-import { writeFileSync } from "node:fs";
+import { renameSync, writeFileSync } from "node:fs";
 import { onExitKill, onInterrupt } from "../interrupt.js";
 
 const fwd = (p: string) => p.replace(/\\/g, "/");
@@ -54,6 +54,20 @@ export function normalizeToWav(input: Buffer, output: string): void {
   });
 }
 
+/**
+ * Append `sec` seconds of silence to a WAV, in place. Used for the pause after
+ * each beat and the hold at the end, so the recorder's pacing (which follows the
+ * clip lengths) and the narration track stay in step.
+ */
+export function padWav(file: string, sec: number): void {
+  if (sec <= 0) return;
+  const tmp = `${file}.pad.wav`;
+  execFileSync("ffmpeg", ["-y", "-i", file, "-af", `apad=pad_dur=${sec.toFixed(3)}`, tmp], {
+    stdio: "ignore",
+  });
+  renameSync(tmp, file);
+}
+
 /** Concatenate same-format WAVs into one track. */
 export function concatWavs(files: string[], output: string, listPath: string): void {
   // concat-demuxer quoting: a ' inside a quoted path is written as '\''.
@@ -75,17 +89,23 @@ export function concatWavs(files: string[], output: string, listPath: string): v
  * audio alongside a filtered video drops it on those recordings. Mapping the
  * audio through the graph (the approach that works in the reference POC) keeps
  * it. Verify afterwards with `hasAudioStream`.
+ *
+ * The output is exactly `audioSec` long. The video's last frame is frozen
+ * (`tpad`) so a recording that ends a few frames early — webm finalize timing,
+ * the fps filter, ms rounding — can never cut off the end of the narration.
  */
 export async function muxNarration(opts: {
   video: string;
   audio: string;
+  /** Length of the narration track; the output is cut to exactly this. */
+  audioSec: number;
   leadInSec: number;
   fps: number;
   format: "mp4" | "webm";
   crf: number;
   output: string;
 }): Promise<{ command: string; stderr: string }> {
-  const { video, audio, leadInSec, fps, format, crf, output } = opts;
+  const { video, audio, audioSec, leadInSec, fps, format, crf, output } = opts;
   const vcodec =
     format === "webm"
       ? ["libvpx-vp9", "-b:v", "0", "-crf", String(crf)]
@@ -107,9 +127,11 @@ export async function muxNarration(opts: {
   // plays everywhere (VS Code preview, browsers, VLC, Windows). Voice at 192k is fine.
   const acodec = format === "webm" ? ["libopus"] : ["libmp3lame", "-b:a", "192k"];
   // `deband` dithers away banding in flat/dark gradients (edge-preserving, so text
-  // stays sharp); the rest trims the lead-in and rebases PTS.
+  // stays sharp); the rest trims the lead-in and rebases PTS. `tpad` freezes the
+  // last frame for as long as the audio could still need (cut by `-t` below).
+  const holdSec = Math.max(1, audioSec).toFixed(3);
   const filter = [
-    `[0:v]trim=start=${leadInSec.toFixed(3)},setpts=PTS-STARTPTS,fps=${fps},format=yuv420p,deband=range=24:blur=1[v]`,
+    `[0:v]trim=start=${leadInSec.toFixed(3)},setpts=PTS-STARTPTS,fps=${fps},tpad=stop_mode=clone:stop_duration=${holdSec},format=yuv420p,deband=range=24:blur=1[v]`,
     "[1:a]aresample=async=1:first_pts=0[a]",
   ].join(";");
   const args = [
@@ -130,7 +152,10 @@ export async function muxNarration(opts: {
     "yuv420p",
     "-c:a",
     ...acodec,
-    "-shortest",
+    // Not `-shortest`: that ends at whichever stream stops first, which clipped
+    // the last words whenever the recording ended a few frames early.
+    "-t",
+    audioSec.toFixed(3),
     // Move the moov atom to the front so streaming/preview players (browsers,
     // IDE preview panes) play audio+video immediately instead of dropping audio.
     ...(format === "mp4" ? ["-movflags", "+faststart"] : []),

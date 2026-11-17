@@ -7,7 +7,7 @@ render --scene scene.json
    │
    ├─ 1. TTS     synth audio per beat → measure each one's real duration
    ├─ 2. RECORD  one continuous headless Playwright run; each beat is held on
-   │             screen for exactly its narration duration (no dead gaps)
+   │             screen for its narration plus a short pause (record.beatGapMs)
    └─ 3. MUX     concatenate narration + overlay on the trimmed video → <name>.mp4
 ```
 

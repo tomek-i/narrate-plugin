@@ -157,7 +157,9 @@
     "record": {
       "default": {
         "waitUntil": "networkidle",
-        "navigationTimeoutMs": 30000
+        "navigationTimeoutMs": 30000,
+        "beatGapMs": 600,
+        "endHoldMs": 1500
       },
       "type": "object",
       "properties": {
@@ -174,6 +176,16 @@
           "default": 30000,
           "type": "number",
           "exclusiveMinimum": 0
+        },
+        "beatGapMs": {
+          "default": 600,
+          "type": "number",
+          "minimum": 0
+        },
+        "endHoldMs": {
+          "default": 1500,
+          "type": "number",
+          "minimum": 0
         }
       },
       "additionalProperties": false

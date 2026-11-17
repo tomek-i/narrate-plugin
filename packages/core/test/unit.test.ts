@@ -108,16 +108,37 @@ test("interpolateEnv substitutes set vars, escapes $${}, and throws on missing",
   assert.equal(interpolateEnv("just text", env), "just text");
 });
 
-test("buildVtt emits lead-in-offset, back-to-back cues per beat", () => {
+test("buildVtt emits back-to-back cues per beat, starting at 0", () => {
   const beats = [
     { id: "intro", say: " Hello there. ", do: [] },
     { id: "next", say: "Now the dashboard.", do: [] },
   ];
-  const vtt = buildVtt(beats, { intro: 2, next: 3 }, 1);
+  const vtt = buildVtt(beats, { intro: 2, next: 3 });
   assert.ok(vtt.startsWith("WEBVTT\n"));
-  // Cues are offset by the 1s lead-in and run consecutively (1→3, 3→6).
-  assert.match(vtt, /intro\n00:00:01\.000 --> 00:00:03\.000\nHello there\./);
-  assert.match(vtt, /next\n00:00:03\.000 --> 00:00:06\.000\nNow the dashboard\./);
+  // The muxed narration starts at 0 (the lead-in is trimmed off), so do the cues.
+  assert.match(vtt, /intro\n00:00:00\.000 --> 00:00:02\.000\nHello there\./);
+  assert.match(vtt, /next\n00:00:02\.000 --> 00:00:05\.000\nNow the dashboard\./);
+});
+
+test("buildVtt with spoken lengths ends each cue at the speech, not the pause", () => {
+  const beats = [
+    { id: "intro", say: "Hello.", do: [] },
+    { id: "next", say: "Next.", do: [] },
+  ];
+  // Slots include a 0.5s pause / 1.5s end hold after the speech.
+  const vtt = buildVtt(beats, { intro: 2.5, next: 4.5 }, { intro: 2, next: 3 });
+  assert.match(vtt, /intro\n00:00:00\.000 --> 00:00:02\.000\n/);
+  assert.match(vtt, /next\n00:00:02\.500 --> 00:00:05\.500\n/);
+});
+
+test("record pacing defaults: a pause between beats and a hold at the end", () => {
+  const cfg = ConfigSchema.parse({});
+  assert.equal(cfg.record.beatGapMs, 600);
+  assert.equal(cfg.record.endHoldMs, 1500);
+  const off = ConfigSchema.parse({ record: { beatGapMs: 0, endHoldMs: 0 } });
+  assert.equal(off.record.beatGapMs, 0);
+  assert.equal(off.record.endHoldMs, 0);
+  assert.equal(ConfigSchema.safeParse({ record: { beatGapMs: -1 } }).success, false);
 });
 
 test("os/mock providers need no key; resolveApiKey returns empty", () => {

@@ -32,6 +32,8 @@
   },
   "record": {
     "waitUntil": "networkidle",
-    "navigationTimeoutMs": 30000
+    "navigationTimeoutMs": 30000,
+    "beatGapMs": 600,
+    "endHoldMs": 1500
   }
 }

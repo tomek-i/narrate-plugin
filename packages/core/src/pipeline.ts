@@ -10,6 +10,7 @@ import {
   meanVolume,
   muxNarration,
   normalizeToWav,
+  padWav,
   probeDuration,
 } from "./mux/ffmpeg.js";
 import { originOf } from "./record/origin-guard.js";
@@ -254,7 +255,8 @@ export async function renderScene(
           ? config.tts.elevenlabs.voice
           : provider.name;
     log(`Generating narration with "${provider.name}" (voice: ${activeVoice})…`);
-    const durations: Durations = {};
+    const durations: Durations = {}; // each beat's slot: speech + the pause after it
+    const spoken: Durations = {}; // speech alone (caption cue lengths)
     const wavs: string[] = [];
     for (const [i, beat] of scene.beats.entries()) {
       const text = provider.voiceTags ? beat.say : stripVoiceTags(beat.say);
@@ -270,9 +272,18 @@ export async function renderScene(
           `beat "${beat.id}": the "${provider.name}" voice produced silent narration (mean volume ${beatVolume ?? "unmeasurable"})`,
         );
       }
-      durations[beat.id] = probeDuration(wavPath);
+      spoken[beat.id] = probeDuration(wavPath);
+      // Breathing room: a pause after each beat, a longer hold after the last.
+      // Padding the clip itself keeps the recorder (paced to `durations`) and
+      // the narration track in step with no extra bookkeeping.
+      const isLast = i === scene.beats.length - 1;
+      const padSec = (isLast ? config.record.endHoldMs : config.record.beatGapMs) / 1000;
+      padWav(wavPath, padSec);
+      durations[beat.id] = padSec > 0 ? probeDuration(wavPath) : spoken[beat.id];
       wavs.push(wavPath);
-      log(`  ${beat.id}: ${durations[beat.id].toFixed(2)}s`);
+      log(
+        `  ${beat.id}: ${spoken[beat.id].toFixed(2)}s${padSec > 0 ? ` (+${padSec.toFixed(2)}s ${isLast ? "end hold" : "pause"})` : ""}`,
+      );
     }
 
     // 2. Record the scene continuously, each beat paced to its narration length.
@@ -317,6 +328,7 @@ export async function renderScene(
     const mux = await muxNarration({
       video: videoPath,
       audio: narration,
+      audioSec: probeDuration(narration),
       leadInSec: leadInMs / 1000,
       fps: config.output.fps,
       format: config.output.format,
@@ -351,7 +363,7 @@ export async function renderScene(
     let captions: string | null = null;
     if (config.output.vtt) {
       captions = join(outDir, `${scene.name}.vtt`);
-      writeFileSync(captions, buildVtt(scene.beats, durations, leadInMs / 1000));
+      writeFileSync(captions, buildVtt(scene.beats, durations, spoken));
       log(`Captions: ${captions}`);
     }
     if (config.output.keepScene && opts.scenePath) {
