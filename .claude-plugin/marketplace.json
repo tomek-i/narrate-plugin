@@ -1,10 +1,12 @@
 {
-  "name": "narrate-marketplace",
+  "name": "narrate",
   "owner": {
     "name": "Thomas Iwainski",
     "email": "tomek.iwainski@gmail.com"
   },
-  "description": "Narrated walkthrough video generator for websites.",
+  "metadata": {
+    "description": "Narrated walkthrough video generator for websites."
+  },
   "plugins": [
     {
       "name": "narrate",

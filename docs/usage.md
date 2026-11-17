@@ -18,8 +18,11 @@ Install from the marketplace:
 
 ```
 /plugin marketplace add tomek-i/narrate-plugin
-/plugin install narrate@narrate-marketplace
+/plugin install narrate@narrate
 ```
+
+Installed it back when the marketplace was called `narrate-marketplace`? Run
+`/plugin marketplace remove narrate-marketplace`, then the two commands above.
 
 Then, from inside any project, describe what you want demoed:
 
