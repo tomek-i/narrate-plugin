@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.25.0](https://github.com/tomek-i/narrate-plugin/compare/v0.24.1...v0.25.0) (2026-11-17)
+
+
+### ⚠ BREAKING CHANGES
+
+* **marketplace:** rename marketplace to narrate ([#74](https://github.com/tomek-i/narrate-plugin/issues/74))
+
+### Bug Fixes
+
+* pauses between beats, and never cut off the end of the narration ([#72](https://github.com/tomek-i/narrate-plugin/issues/72)) ([46b64fd](https://github.com/tomek-i/narrate-plugin/commit/46b64fdbcb53564cde4d92707783fe67cf99fc21))
+
+
+### Miscellaneous Chores
+
+* **marketplace:** rename marketplace to narrate ([#74](https://github.com/tomek-i/narrate-plugin/issues/74)) ([2fc5652](https://github.com/tomek-i/narrate-plugin/commit/2fc56526a511fb816346563eb4382ae93f432933))
+
 ## [0.24.1](https://github.com/tomek-i/narrate-plugin/compare/v0.24.0...v0.24.1) (2026-11-12)
 
 
