@@ -44,7 +44,7 @@ function install(version: string): void {
     JSON.stringify({
       version: 2,
       plugins: {
-        "narrate@narrate-marketplace": [
+        "narrate@narrate": [
           { scope: "user", installPath: join(tmp.dir, "cache", version), version },
         ],
       },

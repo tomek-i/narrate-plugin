@@ -15,7 +15,7 @@ syncing** — see [docs/architecture.md](./docs/architecture.md).
 
 ```
 /plugin marketplace add tomek-i/narrate-plugin
-/plugin install narrate@narrate-marketplace
+/plugin install narrate@narrate
 
 /narrate-demo                                              # see it work, zero setup
 /narrate-video the signup flow using test@example.com and a valid password
