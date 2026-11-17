@@ -14,19 +14,15 @@ function timestamp(seconds: number): string {
 /**
  * Build a WebVTT caption track from the scene's beats and their *measured*
  * narration durations. Each beat occupies its `durations` slot (speech plus the
- * pause after it), offset by `leadInSec` so cues line up with the muxed audio,
- * which starts after the recorder's lead-in. With `spoken`, a cue ends when the
- * speech ends rather than at the end of the pause. The beat id becomes the cue
- * id; voice tags such as `[excited]` are left out of the caption text.
+ * pause after it), starting at 0: the mux trims the recorder's lead-in off the
+ * video and starts the narration at 0, so no offset is needed. With `spoken`, a
+ * cue ends when the speech ends rather than at the end of the pause. The beat id
+ * becomes the cue id; voice tags such as `[excited]` are left out of the caption
+ * text.
  */
-export function buildVtt(
-  beats: Beat[],
-  durations: Durations,
-  leadInSec = 0,
-  spoken?: Durations,
-): string {
+export function buildVtt(beats: Beat[], durations: Durations, spoken?: Durations): string {
   const lines = ["WEBVTT", ""];
-  let t = leadInSec;
+  let t = 0;
   for (const beat of beats) {
     const start = t;
     const slot = durations[beat.id] ?? 0;

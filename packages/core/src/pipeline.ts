@@ -363,7 +363,7 @@ export async function renderScene(
     let captions: string | null = null;
     if (config.output.vtt) {
       captions = join(outDir, `${scene.name}.vtt`);
-      writeFileSync(captions, buildVtt(scene.beats, durations, leadInMs / 1000, spoken));
+      writeFileSync(captions, buildVtt(scene.beats, durations, spoken));
       log(`Captions: ${captions}`);
     }
     if (config.output.keepScene && opts.scenePath) {

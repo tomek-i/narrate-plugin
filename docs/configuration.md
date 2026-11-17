@@ -64,7 +64,7 @@ skill). The full shape (valid in either file):
     "waitUntil": "networkidle",                // when a page load is done: load | domcontentloaded | networkidle
     "navigationTimeoutMs": 30000,              // max time for one page load (also waitForUrl/back/forward)
     "beatGapMs": 600,                          // silent pause after each beat (0 = back-to-back)
-    "endHoldMs": 1500                          // silence after the last beat, video held on its final frame
+    "endHoldMs": 1500                          // silence after the last beat, screen stays on it
   }
 }
 ```
@@ -92,8 +92,12 @@ A scene can override it with its own top-level `waitUntil` (see
 So the narration doesn't run sentence into sentence, each beat is followed by a
 short silent pause (`beatGapMs`, default 600ms) while the screen stays on that
 beat. After the last beat, `endHoldMs` (default 1500ms) of silence lets the
-narration finish cleanly while the video holds its final frame. Set either to
-`0` to turn it off. Captions (`output.vtt`) end with the speech, not the pause.
+narration finish cleanly while the screen stays on the last beat. The video is
+always cut to the narration's length, and if the recording comes up a few frames
+short its last frame is held, so the end of the narration is never cut off. Set
+either to `0` to turn it off. A beat's steps should fit within its spoken line:
+steps that run into the pause shorten it without a warning. Captions
+(`output.vtt`) end with the speech, not the pause.
 
 ### On-screen overlays (`overlay`)
 
@@ -127,8 +131,8 @@ flicker/banding on flat dark UIs. If flicker persists, lower `crf` (e.g. 14).
 Both off by default; flip them on in `output` to get extra files next to the video:
 
 - **`vtt`** — writes `<name>.vtt`, a WebVTT caption track with one cue per beat,
-  timed to the measured narration (offset by the recorder's lead-in so it lines up
-  with the muxed audio). Use it as subtitles, or as a readable transcript of what
+  timed to the measured narration, ending with the speech rather than the pause
+  after it. Use it as subtitles, or as a readable transcript of what
   was said.
 - **`keepScene`** — keeps a copy of the scene file as `<name>.scene.json` next to
   the video, so the walkthrough can be re-rendered or hand-edited later. (If the
