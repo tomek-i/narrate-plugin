@@ -193,9 +193,9 @@ apps. See [configuration.md](./configuration.md#page-loads-record).
 
 Each beat is held on screen for **its narration length plus a short pause**
 (`record.beatGapMs`, default 600ms; the last beat gets `record.endHoldMs`, default
-1.5s, with the video held on its final frame). Keep a beat's `do` steps shorter
-than its spoken line; if the steps overrun, the engine logs a warning so you can
-split the beat or lengthen the narration.
+1.5s). Keep a beat's `do` steps shorter than its spoken line: steps that run into
+the pause shorten it silently, and if they overrun the pause too, the engine logs
+a warning so you can split the beat or lengthen the narration.
 
 ## Voice tags
 

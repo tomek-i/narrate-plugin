@@ -23027,8 +23027,8 @@ var ConfigSchema = external_exports.object({
      */
     beatGapMs: external_exports.number().min(0).default(600),
     /**
-     * Silence after the last beat (ms), with the video held on its final
-     * frame, so the narration finishes cleanly before the video ends.
+     * Silence after the last beat (ms), with the screen still on it, so the
+     * narration finishes cleanly before the video ends.
      */
     endHoldMs: external_exports.number().min(0).default(1500)
   }).default({
@@ -25065,9 +25065,9 @@ function timestamp(seconds) {
   const s = Math.floor(ms % 6e4 / 1e3);
   return `${pad(h)}:${pad(m)}:${pad(s)}.${pad(ms % 1e3, 3)}`;
 }
-function buildVtt(beats, durations, leadInSec = 0, spoken) {
+function buildVtt(beats, durations, spoken) {
   const lines = ["WEBVTT", ""];
-  let t = leadInSec;
+  let t = 0;
   for (const beat of beats) {
     const start = t;
     const slot = durations[beat.id] ?? 0;
@@ -25285,7 +25285,7 @@ ${mux.stderr.trim().split("\n").slice(-12).join("\n")}`);
     let captions = null;
     if (config2.output.vtt) {
       captions = join6(outDir, `${scene.name}.vtt`);
-      writeFileSync5(captions, buildVtt(scene.beats, durations, leadInMs / 1e3, spoken));
+      writeFileSync5(captions, buildVtt(scene.beats, durations, spoken));
       log(`Captions: ${captions}`);
     }
     if (config2.output.keepScene && opts.scenePath) {

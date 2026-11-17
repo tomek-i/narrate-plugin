@@ -292,8 +292,8 @@ export const ConfigSchema = z.object({
        */
       beatGapMs: z.number().min(0).default(600),
       /**
-       * Silence after the last beat (ms), with the video held on its final
-       * frame, so the narration finishes cleanly before the video ends.
+       * Silence after the last beat (ms), with the screen still on it, so the
+       * narration finishes cleanly before the video ends.
        */
       endHoldMs: z.number().min(0).default(1500),
     })
