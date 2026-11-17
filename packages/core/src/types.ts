@@ -272,7 +272,7 @@ export const ConfigSchema = z.object({
       color: z.string().default("#6366f1"),
     })
     .default({ cursor: true, highlight: true, style: "ring", holdMs: 3000, color: "#6366f1" }),
-  /** How the recorder waits for pages to load. */
+  /** How the recorder waits for pages to load, and the pauses between beats. */
   record: z
     .object({
       /**
@@ -285,8 +285,24 @@ export const ConfigSchema = z.object({
       /** Max time for one page load (ms), including the idle wait. Also the
        *  timeout for `waitForUrl`, `back` and `forward`. */
       navigationTimeoutMs: z.number().positive().default(30000),
+      /**
+       * Silent pause after each beat's narration (ms), except the last. The
+       * screen stays on the beat while it plays, so the pacing breathes
+       * instead of running sentence into sentence. 0 = back-to-back.
+       */
+      beatGapMs: z.number().min(0).default(600),
+      /**
+       * Silence after the last beat (ms), with the video held on its final
+       * frame, so the narration finishes cleanly before the video ends.
+       */
+      endHoldMs: z.number().min(0).default(1500),
     })
-    .default({ waitUntil: "networkidle", navigationTimeoutMs: 30000 }),
+    .default({
+      waitUntil: "networkidle",
+      navigationTimeoutMs: 30000,
+      beatGapMs: 600,
+      endHoldMs: 1500,
+    }),
 });
 export type Config = z.infer<typeof ConfigSchema>;
 export type OverlayConfig = Config["overlay"];

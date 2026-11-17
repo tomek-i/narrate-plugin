@@ -62,7 +62,9 @@ skill). The full shape (valid in either file):
   },
   "record": {
     "waitUntil": "networkidle",                // when a page load is done: load | domcontentloaded | networkidle
-    "navigationTimeoutMs": 30000               // max time for one page load (also waitForUrl/back/forward)
+    "navigationTimeoutMs": 30000,              // max time for one page load (also waitForUrl/back/forward)
+    "beatGapMs": 600,                          // silent pause after each beat (0 = back-to-back)
+    "endHoldMs": 1500                          // silence after the last beat, video held on its final frame
   }
 }
 ```
@@ -84,6 +86,14 @@ as done:
 
 A scene can override it with its own top-level `waitUntil` (see
 [scenes.md](./scenes.md#page-loads)).
+
+### Pacing (`record.beatGapMs`, `record.endHoldMs`)
+
+So the narration doesn't run sentence into sentence, each beat is followed by a
+short silent pause (`beatGapMs`, default 600ms) while the screen stays on that
+beat. After the last beat, `endHoldMs` (default 1500ms) of silence lets the
+narration finish cleanly while the video holds its final frame. Set either to
+`0` to turn it off. Captions (`output.vtt`) end with the speech, not the pause.
 
 ### On-screen overlays (`overlay`)
 

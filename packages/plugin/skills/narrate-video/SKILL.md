@@ -12,8 +12,8 @@ demo and for any test credentials or data needed.
 
 Produce a narrated video tour using the bundled `@narrate/core` engine: it
 generates speech with a TTS provider, records the browser continuously with a
-headless Playwright (each beat held on screen for exactly its narration length,
-so audio sync is automatic), and muxes narration onto the video with ffmpeg.
+headless Playwright (each beat held on screen for its narration length plus a
+short pause, so audio sync is automatic), and muxes narration onto the video with ffmpeg.
 
 ## Narrate like a presenter (use all your context)
 
@@ -295,8 +295,10 @@ Two roles — keep them separate so it doesn't look random:
 
 ## Notes
 
-- **Pacing:** a beat is held for exactly its narration length. If its `do` steps
-  run longer, the engine warns — split the beat or lengthen the narration.
+- **Pacing:** a beat is held for its narration length plus a short pause
+  (`record.beatGapMs`, default 600ms; `record.endHoldMs` after the last beat). If
+  its `do` steps run longer than the narration, the engine warns — split the beat
+  or lengthen the narration.
 - **Config:** global `~/.narrate/settings.json`, overridden per project by
   `.narrate/settings.local.json` (deep-merged), holds output settings plus a `tts`
   block with per-provider settings nested under their own key (`tts.gemini`,

@@ -120,6 +120,27 @@ test("buildVtt emits lead-in-offset, back-to-back cues per beat", () => {
   assert.match(vtt, /next\n00:00:03\.000 --> 00:00:06\.000\nNow the dashboard\./);
 });
 
+test("buildVtt with spoken lengths ends each cue at the speech, not the pause", () => {
+  const beats = [
+    { id: "intro", say: "Hello.", do: [] },
+    { id: "next", say: "Next.", do: [] },
+  ];
+  // Slots include a 0.5s pause / 1.5s end hold after the speech.
+  const vtt = buildVtt(beats, { intro: 2.5, next: 4.5 }, 0, { intro: 2, next: 3 });
+  assert.match(vtt, /intro\n00:00:00\.000 --> 00:00:02\.000\n/);
+  assert.match(vtt, /next\n00:00:02\.500 --> 00:00:05\.500\n/);
+});
+
+test("record pacing defaults: a pause between beats and a hold at the end", () => {
+  const cfg = ConfigSchema.parse({});
+  assert.equal(cfg.record.beatGapMs, 600);
+  assert.equal(cfg.record.endHoldMs, 1500);
+  const off = ConfigSchema.parse({ record: { beatGapMs: 0, endHoldMs: 0 } });
+  assert.equal(off.record.beatGapMs, 0);
+  assert.equal(off.record.endHoldMs, 0);
+  assert.equal(ConfigSchema.safeParse({ record: { beatGapMs: -1 } }).success, false);
+});
+
 test("os/mock providers need no key; resolveApiKey returns empty", () => {
   for (const provider of ["os", "mock"] as const) {
     const cfg = ConfigSchema.parse({ tts: { provider } });
