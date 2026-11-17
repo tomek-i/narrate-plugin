@@ -205,6 +205,43 @@ describe("render --json", () => {
     assert.equal(r.out.audio.present, true);
     assert.equal(r.out.audio.silent, true);
   });
+
+  test("beats get a pause after them, the last an end hold; captions follow the speech", async (t) => {
+    if (browserSkip) return t.skip(browserSkip);
+    // Mock speech for a two-word line is 1.5s.
+    const scene = sceneFile("paced.json", {
+      name: "paced",
+      site: site.url,
+      beats: [
+        { id: "one", say: "Hello there." },
+        { id: "two", say: "Goodbye now." },
+      ],
+    });
+    const config = join(tmp.dir, "paced.config.json");
+    writeFileSync(
+      config,
+      JSON.stringify({ output: { vtt: true }, record: { beatGapMs: 500, endHoldMs: 1000 } }),
+    );
+    const r = await runRender(
+      "--scene",
+      scene,
+      "--config",
+      config,
+      "--provider",
+      "mock",
+      "--out",
+      "out-paced",
+    );
+    assert.equal(r.status, 0, r.stderr);
+    // 1.5 + 0.5 pause + 1.5 + 1.0 end hold.
+    assert.ok(Math.abs(r.out.durationSec - 4.5) < 0.1, `got ${r.out.durationSec}s`);
+    const vtt = readFileSync(r.out.captions, "utf8");
+    assert.match(vtt, /one\n00:00:00\.000 --> 00:00:01\.500\n/);
+    assert.match(vtt, /two\n00:00:02\.000 --> 00:00:03\.500\n/);
+    const log = readFileSync(r.out.log, "utf8");
+    assert.match(log, /one: 1\.50s \(\+0\.50s pause\)/);
+    assert.match(log, /two: 1\.50s \(\+1\.00s end hold\)/);
+  });
 });
 
 test("audioProblem: no stream, silence and unmeasurable volume are problems", () => {

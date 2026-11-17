@@ -14,6 +14,27 @@ function lavfi(source: string, out: string, extra: string[] = []): string {
   return out;
 }
 
+/** Number of decoded frames in a file's video stream. */
+function videoFrames(file: string): number {
+  const out = execFileSync(
+    "ffprobe",
+    [
+      "-v",
+      "error",
+      "-count_frames",
+      "-select_streams",
+      "v:0",
+      "-show_entries",
+      "stream=nb_read_frames",
+      "-of",
+      "csv=p=0",
+      file,
+    ],
+    { encoding: "utf8" },
+  );
+  return Number(out.trim());
+}
+
 describe("mux timing", { skip: noFfmpeg && "ffmpeg is not on PATH" }, () => {
   const dir = mkdtempSync(join(tmpdir(), "narrate-mux-"));
   after(() => rmSync(dir, { recursive: true, force: true }));
@@ -50,8 +71,11 @@ describe("mux timing", { skip: noFfmpeg && "ffmpeg is not on PATH" }, () => {
       output,
     });
     assert.ok(hasAudioStream(output));
-    // The video's last frame is held, so the output runs the full 3s of narration.
+    // The output runs the full 3s of narration…
     const dur = probeDuration(output);
     assert.ok(Math.abs(dur - 3) < 0.1, `expected ~3s, got ${dur}s`);
+    // …and so does the video stream: its last frame is held, not dropped at 2s.
+    const frames = videoFrames(output);
+    assert.ok(Math.abs(frames - 75) <= 2, `expected ~75 frames at 25fps, got ${frames}`);
   });
 });
