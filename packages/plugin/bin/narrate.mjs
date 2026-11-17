@@ -23008,7 +23008,7 @@ var ConfigSchema = external_exports.object({
     /** Accent color (CSS) for the cursor, ripple, and highlights. */
     color: external_exports.string().default("#6366f1")
   }).default({ cursor: true, highlight: true, style: "ring", holdMs: 3e3, color: "#6366f1" }),
-  /** How the recorder waits for pages to load. */
+  /** How the recorder waits for pages to load, and the pauses between beats. */
   record: external_exports.object({
     /**
      * When a navigation (opening the site, `navigate`, `reload`, and the
@@ -23019,8 +23019,24 @@ var ConfigSchema = external_exports.object({
     waitUntil: WaitUntilSchema.default("networkidle"),
     /** Max time for one page load (ms), including the idle wait. Also the
      *  timeout for `waitForUrl`, `back` and `forward`. */
-    navigationTimeoutMs: external_exports.number().positive().default(3e4)
-  }).default({ waitUntil: "networkidle", navigationTimeoutMs: 3e4 })
+    navigationTimeoutMs: external_exports.number().positive().default(3e4),
+    /**
+     * Silent pause after each beat's narration (ms), except the last. The
+     * screen stays on the beat while it plays, so the pacing breathes
+     * instead of running sentence into sentence. 0 = back-to-back.
+     */
+    beatGapMs: external_exports.number().min(0).default(600),
+    /**
+     * Silence after the last beat (ms), with the video held on its final
+     * frame, so the narration finishes cleanly before the video ends.
+     */
+    endHoldMs: external_exports.number().min(0).default(1500)
+  }).default({
+    waitUntil: "networkidle",
+    navigationTimeoutMs: 3e4,
+    beatGapMs: 600,
+    endHoldMs: 1500
+  })
 });
 
 // src/config.ts
@@ -23203,7 +23219,7 @@ function resolveApiKey(config2, settingsFiles) {
 // src/mux/ffmpeg.ts
 import { execFileSync, spawn, spawnSync } from "child_process";
 import { once } from "events";
-import { writeFileSync } from "fs";
+import { renameSync, writeFileSync } from "fs";
 
 // src/interrupt.ts
 var cleanups = /* @__PURE__ */ new Set();
@@ -23347,6 +23363,14 @@ function normalizeToWav(input2, output2) {
     stdio: ["pipe", "ignore", "ignore"]
   });
 }
+function padWav(file2, sec) {
+  if (sec <= 0) return;
+  const tmp = `${file2}.pad.wav`;
+  execFileSync("ffmpeg", ["-y", "-i", file2, "-af", `apad=pad_dur=${sec.toFixed(3)}`, tmp], {
+    stdio: "ignore"
+  });
+  renameSync(tmp, file2);
+}
 function concatWavs(files, output2, listPath) {
   writeFileSync(listPath, files.map((f) => `file '${fwd(f).replaceAll("'", "'\\''")}'`).join("\n"));
   execFileSync(
@@ -23356,7 +23380,7 @@ function concatWavs(files, output2, listPath) {
   );
 }
 async function muxNarration(opts) {
-  const { video, audio, leadInSec, fps, format, crf, output: output2 } = opts;
+  const { video, audio, audioSec, leadInSec, fps, format, crf, output: output2 } = opts;
   const vcodec = format === "webm" ? ["libvpx-vp9", "-b:v", "0", "-crf", String(crf)] : (
     // Kill flat-dark-area flicker on screen content:
     //  ipratio/pbratio=1.0 → no per-frame-type quality boost (no keyframe pulse)
@@ -23374,8 +23398,9 @@ async function muxNarration(opts) {
     ]
   );
   const acodec = format === "webm" ? ["libopus"] : ["libmp3lame", "-b:a", "192k"];
+  const holdSec = Math.max(1, audioSec).toFixed(3);
   const filter = [
-    `[0:v]trim=start=${leadInSec.toFixed(3)},setpts=PTS-STARTPTS,fps=${fps},format=yuv420p,deband=range=24:blur=1[v]`,
+    `[0:v]trim=start=${leadInSec.toFixed(3)},setpts=PTS-STARTPTS,fps=${fps},tpad=stop_mode=clone:stop_duration=${holdSec},format=yuv420p,deband=range=24:blur=1[v]`,
     "[1:a]aresample=async=1:first_pts=0[a]"
   ].join(";");
   const args = [
@@ -23396,7 +23421,10 @@ async function muxNarration(opts) {
     "yuv420p",
     "-c:a",
     ...acodec,
-    "-shortest",
+    // Not `-shortest`: that ends at whichever stream stops first, which clipped
+    // the last words whenever the recording ended a few frames early.
+    "-t",
+    audioSec.toFixed(3),
     // Move the moov atom to the front so streaming/preview players (browsers,
     // IDE preview panes) play audio+video immediately instead of dropping audio.
     ...format === "mp4" ? ["-movflags", "+faststart"] : [],
@@ -24484,7 +24512,7 @@ import {
   existsSync as existsSync4,
   mkdirSync as mkdirSync3,
   readFileSync as readFileSync5,
-  renameSync,
+  renameSync as renameSync2,
   rmSync as rmSync2,
   writeFileSync as writeFileSync3
 } from "fs";
@@ -24567,7 +24595,7 @@ function writeAtomic(file2, content) {
   const tmp = `${file2}.${process.pid}.tmp`;
   try {
     writeFileSync3(tmp, content);
-    renameSync(tmp, file2);
+    renameSync2(tmp, file2);
   } catch {
     rmSync2(tmp, { force: true });
     writeFileSync3(file2, content);
@@ -25037,13 +25065,14 @@ function timestamp(seconds) {
   const s = Math.floor(ms % 6e4 / 1e3);
   return `${pad(h)}:${pad(m)}:${pad(s)}.${pad(ms % 1e3, 3)}`;
 }
-function buildVtt(beats, durations, leadInSec = 0) {
+function buildVtt(beats, durations, leadInSec = 0, spoken) {
   const lines = ["WEBVTT", ""];
   let t = leadInSec;
   for (const beat of beats) {
     const start = t;
-    const end = t + (durations[beat.id] ?? 0);
-    t = end;
+    const slot = durations[beat.id] ?? 0;
+    t = start + slot;
+    const end = start + Math.min(slot, spoken?.[beat.id] ?? slot);
     lines.push(beat.id, `${timestamp(start)} --> ${timestamp(end)}`, stripVoiceTags(beat.say), "");
   }
   return `${lines.join("\n")}
@@ -25170,6 +25199,7 @@ ${formatProblems(problems)}`
     const activeVoice = config2.tts.provider === "gemini" ? config2.tts.gemini.voice : config2.tts.provider === "elevenlabs" ? config2.tts.elevenlabs.voice : provider.name;
     log(`Generating narration with "${provider.name}" (voice: ${activeVoice})\u2026`);
     const durations = {};
+    const spoken = {};
     const wavs = [];
     for (const [i, beat] of scene.beats.entries()) {
       const text = provider.voiceTags ? beat.say : stripVoiceTags(beat.say);
@@ -25182,9 +25212,15 @@ ${formatProblems(problems)}`
           `beat "${beat.id}": the "${provider.name}" voice produced silent narration (mean volume ${beatVolume ?? "unmeasurable"})`
         );
       }
-      durations[beat.id] = probeDuration(wavPath);
+      spoken[beat.id] = probeDuration(wavPath);
+      const isLast = i === scene.beats.length - 1;
+      const padSec = (isLast ? config2.record.endHoldMs : config2.record.beatGapMs) / 1e3;
+      padWav(wavPath, padSec);
+      durations[beat.id] = padSec > 0 ? probeDuration(wavPath) : spoken[beat.id];
       wavs.push(wavPath);
-      log(`  ${beat.id}: ${durations[beat.id].toFixed(2)}s`);
+      log(
+        `  ${beat.id}: ${spoken[beat.id].toFixed(2)}s${padSec > 0 ? ` (+${padSec.toFixed(2)}s ${isLast ? "end hold" : "pause"})` : ""}`
+      );
     }
     stage = "record";
     log("Recording walkthrough (headless)\u2026");
@@ -25217,6 +25253,7 @@ ${formatProblems(problems)}`
     const mux = await muxNarration({
       video: videoPath,
       audio: narration,
+      audioSec: probeDuration(narration),
       leadInSec: leadInMs / 1e3,
       fps: config2.output.fps,
       format: config2.output.format,
@@ -25248,7 +25285,7 @@ ${mux.stderr.trim().split("\n").slice(-12).join("\n")}`);
     let captions = null;
     if (config2.output.vtt) {
       captions = join6(outDir, `${scene.name}.vtt`);
-      writeFileSync5(captions, buildVtt(scene.beats, durations, leadInMs / 1e3));
+      writeFileSync5(captions, buildVtt(scene.beats, durations, leadInMs / 1e3, spoken));
       log(`Captions: ${captions}`);
     }
     if (config2.output.keepScene && opts.scenePath) {
