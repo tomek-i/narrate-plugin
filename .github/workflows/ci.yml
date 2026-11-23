@@ -31,7 +31,7 @@ jobs:
       # The browser tests record for real: they need Playwright's Chromium (and
       # its system libraries) plus ffmpeg on PATH for the full renders.
       - name: Cache Playwright browsers
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
